@@ -1,0 +1,21 @@
+# 忽略缓存和模型
+data/
+*.log
+*.chk
+*.sh
+*.out
+*.tmp
+*.xyz
+*.wbo
+*.energies
+*.inp
+*.pub
+
+# 忽略大型日志和结果文件
+**/__pycache__/
+**/.DS_Store
+**/.history*
+**/*.log
+**/*.out
+
+
