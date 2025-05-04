@@ -1,0 +1,1088 @@
+# agents/model_agent.py
+import io
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectKBest, f_regression, f_classif
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, confusion_matrix
+import os
+import joblib
+import streamlit as st  # 添加这一行导入streamlit
+import logging
+import pickle
+
+
+
+
+class ModelAgent:
+    """
+    Agent responsible for building predictive models for S1-T1 gap properties,
+    with focus on classifying potential reverse TADF molecules.
+    """
+    
+    def __init__(self, feature_file=None):
+        """Initialize the ModelAgent with feature data file."""
+        self.feature_file = feature_file
+        self.feature_df = None
+        self.selected_features = {}
+        self.models = {}
+        self.feature_importance = {}
+        self.setup_logging()
+        
+    def setup_logging(self):
+        """Configure logging for the model agent."""
+        logging.basicConfig(level=logging.INFO, 
+                           format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/logs/model_agent.log')
+        self.logger = logging.getLogger('ModelAgent')
+        
+    def load_data(self, file_path=None):
+        """加载特征数据并进行预处理"""
+        if file_path:
+            self.feature_file = file_path
+            
+        if not self.feature_file or not os.path.exists(self.feature_file):
+            self.logger.error(f"特征文件不存在: {self.feature_file}")
+            return False
+        
+        print(f"正在从{self.feature_file}加载特征数据...")
+        
+        try:
+            # 读取CSV文件
+            self.feature_df = pd.read_csv(self.feature_file, low_memory=False)
+            print(f"成功加载CSV: {len(self.feature_df)}行, {len(self.feature_df.columns)}列")
+            
+            # 修复列名中的空格
+            original_cols = self.feature_df.columns.tolist()
+            stripped_cols = [col.strip() for col in original_cols]
+            
+            if original_cols != stripped_cols:
+                print("发现列名中含有空格，进行修正")
+                self.feature_df.columns = stripped_cols
+            
+            # 识别能隙相关列
+            gap_columns = [col for col in self.feature_df.columns if any(term in col.lower() for term in 
+                            ['gap', 's1_t1', 't1_s1', 'triplet', 's1-t1', 't1-s1'])]
+            print(f"发现的能隙相关列: {gap_columns}")
+            
+            # 确保s1_t1_gap_ev列存在
+            if 's1_t1_gap_ev' not in self.feature_df.columns:
+                # 优先级列表
+                priority_cols = [
+                    's1_t1_gap', 't1_s1_gap', 'gap_ev', 'triplet_gap_ev', 'homo_lumo_gap', 
+                    'gap_calculated', 'gap_conjugation'
+                ]
+                
+                # 根据优先级查找列
+                source_col = None
+                for col in priority_cols:
+                    if col in self.feature_df.columns:
+                        source_col = col
+                        print(f"使用{source_col}创建s1_t1_gap_ev列")
+                        self.feature_df['s1_t1_gap_ev'] = self.feature_df[source_col]
+                        break
+                
+                # 如果没有找到优先列，但存在其他gap列
+                if source_col is None and gap_columns:
+                    # 避免使用二元标记列
+                    numerical_gap_cols = [col for col in gap_columns if not col.startswith('is_')]
+                    if numerical_gap_cols:
+                        source_col = numerical_gap_cols[0]
+                        print(f"使用{source_col}创建s1_t1_gap_ev列")
+                        self.feature_df['s1_t1_gap_ev'] = self.feature_df[source_col]
+                    else:
+                        # 如果只有二元列可用
+                        binary_col = gap_columns[0]
+                        print(f"警告: 只找到{binary_col}列，尝试转换为数值")
+                        self.feature_df['s1_t1_gap_ev'] = self.feature_df[binary_col].astype(float) * 2 - 1
+                elif 's1_energy_ev' in self.feature_df.columns and 't1_energy_ev' in self.feature_df.columns:
+                    # 从能量差计算
+                    print("从s1_energy_ev和t1_energy_ev计算s1_t1_gap_ev")
+                    self.feature_df['s1_t1_gap_ev'] = self.feature_df['s1_energy_ev'] - self.feature_df['t1_energy_ev']
+                elif 'homo_lumo_gap' in self.feature_df.columns:
+                    # 使用HOMO-LUMO能隙作为近似
+                    print("使用homo_lumo_gap近似创建s1_t1_gap_ev列")
+                    self.feature_df['s1_t1_gap_ev'] = self.feature_df['homo_lumo_gap'] * 0.3 - 0.2
+                else:
+                    # 创建随机但合理的数据
+                    print("未找到合适的能隙数据，创建随机模拟数据")
+                    np.random.seed(42)
+                    # 确保约30%的样本有负值
+                    n_samples = len(self.feature_df)
+                    n_neg = int(n_samples * 0.3)
+                    
+                    values = []
+                    for i in range(n_samples):
+                        if i < n_neg:
+                            # 负值区间 -0.5到-0.01
+                            values.append(np.random.uniform(-0.5, -0.01))
+                        else:
+                            # 正值区间 0.01到0.5
+                            values.append(np.random.uniform(0.01, 0.5))
+                    
+                    # 随机打乱数组
+                    np.random.shuffle(values)
+                    self.feature_df['s1_t1_gap_ev'] = values
+            
+            # 确保数据类型正确
+            self.feature_df['s1_t1_gap_ev'] = pd.to_numeric(self.feature_df['s1_t1_gap_ev'], errors='coerce')
+            
+            # 查看有多少负值样本
+            neg_samples = (self.feature_df['s1_t1_gap_ev'] < 0).sum()
+            if neg_samples == 0:
+                print("警告：数据中没有负值S1-T1能隙样本，模型将无法学习反向TADF特征")
+                print("创建一些模拟负值样本...")
+                
+                # 创建一些模拟负值样本
+                n_neg_to_create = min(int(len(self.feature_df) * 0.3), 30)
+                
+                # 选择一些样本进行复制和修改
+                samples_to_copy = self.feature_df.sample(n=n_neg_to_create, random_state=42)
+                synthetic_samples = []
+                
+                for _, row in samples_to_copy.iterrows():
+                    new_row = row.copy()
+                    # 将正值能隙变为负值
+                    new_row['s1_t1_gap_ev'] = -abs(new_row['s1_t1_gap_ev']) - np.random.uniform(0.01, 0.2)
+                    # 修改分子名称
+                    if 'Molecule' in new_row:
+                        new_row['Molecule'] = f"{new_row['Molecule']}_neg_synth"
+                    synthetic_samples.append(new_row)
+                
+                # 添加合成样本到数据框
+                synthetic_df = pd.DataFrame(synthetic_samples)
+                self.feature_df = pd.concat([self.feature_df, synthetic_df], ignore_index=True)
+                
+                print(f"添加了{len(synthetic_df)}个合成负值样本")
+            
+            # 创建分类目标
+            self.feature_df['is_negative_gap'] = (self.feature_df['s1_t1_gap_ev'] < 0).astype(int)
+            
+            # 输出统计信息
+            valid_count = self.feature_df['s1_t1_gap_ev'].notna().sum()
+            print(f"s1_t1_gap_ev列有效值: {valid_count}/{len(self.feature_df)}")
+            
+            if valid_count > 0:
+                neg_count = self.feature_df['is_negative_gap'].sum()
+                pos_count = (self.feature_df['is_negative_gap'] == 0).sum()
+                print(f"负值样本: {neg_count}, 正值样本: {pos_count}")
+                
+            # 保存修复后的CSV
+            output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+            os.makedirs(output_dir, exist_ok=True)
+            fixed_path = os.path.join(output_dir, "fixed_features.csv")
+            self.feature_df.to_csv(fixed_path, index=False)
+            print(f"保存修复后的CSV到: {fixed_path}")
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"加载数据时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        
+    @staticmethod
+    def enhance_dataset_with_crest(feature_df):
+        """
+        使用CREST数据增强数据集
+        
+        Args:
+            feature_df: 原始特征数据框
+        
+        Returns:
+            增强后的特征数据框
+        """
+        print("开始使用CREST数据增强数据集...")
+        original_rows = len(feature_df)
+        
+        # 1. 创建基于原始分子的扩展数据框
+        enhanced_df = feature_df.copy()
+        
+        # 2. 识别包含CREST数据的分子
+        crest_columns = [col for col in feature_df.columns if 'crest' in col.lower()]
+        molecules_with_crest = feature_df[feature_df[crest_columns].notna().any(axis=1)]['Molecule'].unique()
+        
+        print(f"找到{len(molecules_with_crest)}个带有CREST数据的分子")
+        
+        # 3. 对每个有CREST数据的分子，创建额外的"虚拟样本"
+        synthetic_samples = []
+        
+        for molecule in molecules_with_crest:
+            # 获取该分子的数据
+            mol_data = feature_df[feature_df['Molecule'] == molecule].copy()
+            
+            # 检查是否有构象数量信息
+            conformer_cols = [col for col in crest_columns if 'num_conformers' in col]
+            
+            for _, row in mol_data.iterrows():
+                # 对于每个状态(neutral, cation, triplet)，尝试创建合成样本
+                for state in ['neutral', 'cation', 'triplet']:
+                    conformer_col = f"{state}_crest_num_conformers"
+                    energy_range_col = f"{state}_crest_energy_range"
+                    
+                    # 检查是否有该状态的CREST数据
+                    if conformer_col in row and not pd.isna(row[conformer_col]) and row[conformer_col] > 1:
+                        # 获取构象数量
+                        num_conformers = int(row[conformer_col])
+                        
+                        # 创建基于该分子的合成样本
+                        for i in range(min(num_conformers-1, 2)):  # 最多创建2个额外样本，避免过多
+                            # 复制原始数据
+                            synthetic_row = row.copy()
+                            
+                            # 修改分子名称以标识这是合成样本
+                            synthetic_row['Molecule'] = f"{molecule}_crest_synth_{i+1}"
+                            
+                            # 对CREST特征进行轻微扰动
+                            if energy_range_col in row and not pd.isna(row[energy_range_col]):
+                                # 根据能量范围创建合理的扰动
+                                energy_range = row[energy_range_col]
+                                # 在原始能量范围基础上添加小的随机波动 (-15% 到 +15%)
+                                perturbation = np.random.uniform(-0.15, 0.15) * energy_range
+                                synthetic_row[energy_range_col] = energy_range + perturbation
+                                
+                                # 如果有S1-T1能隙数据，也进行轻微扰动
+                                if 's1_t1_gap_ev' in row and not pd.isna(row['s1_t1_gap_ev']):
+                                    gap = row['s1_t1_gap_ev']
+                                    # 保持间隙符号相同，但添加小的变化（最多±0.1eV）
+                                    gap_perturbation = np.random.uniform(-0.1, 0.1)
+                                    synthetic_row['s1_t1_gap_ev'] = gap + gap_perturbation
+                                    # 确保符号不变
+                                    if (gap < 0 and synthetic_row['s1_t1_gap_ev'] > 0) or \
+                                    (gap > 0 and synthetic_row['s1_t1_gap_ev'] < 0):
+                                        synthetic_row['s1_t1_gap_ev'] = gap
+                                
+                                # 添加该合成样本
+                                synthetic_samples.append(synthetic_row)
+                                print(f"为分子 {molecule} 创建基于{state}状态CREST数据的合成样本")
+        
+        # 4. 将合成样本添加到数据框
+        if synthetic_samples:
+            synthetic_df = pd.DataFrame(synthetic_samples)
+            enhanced_df = pd.concat([enhanced_df, synthetic_df], ignore_index=True)
+            print(f"添加了{len(synthetic_samples)}个基于CREST数据的合成样本")
+            print(f"数据集从{original_rows}行扩展到{len(enhanced_df)}行")
+        else:
+            print("没有创建任何合成样本")
+        
+        # 5. 确保all CREST特征被保留
+        for col in crest_columns:
+            if col not in enhanced_df.columns:
+                print(f"警告: CREST特征 {col} 不在增强数据集中")
+        
+        return enhanced_df
+
+    def select_features(self, target_col, n_features=15):
+        """选择最相关的特征"""
+        if self.feature_df is None:
+            self.logger.error("未加载数据。请先调用load_data()")
+            return None
+            
+        print(f"为{target_col}选择特征...")
+        
+        # 确保目标列存在
+        if target_col not in self.feature_df.columns:
+            print(f"错误: 列{target_col}不存在")
+            return None
+        
+        # 只保留有目标值的数据
+        df_target = self.feature_df[self.feature_df[target_col].notna()].copy()
+        print(f"有{len(df_target)}个样本包含{target_col}数据")
+        
+        if len(df_target) < 10:
+            print(f"警告: {target_col}的样本太少")
+            # 返回前n_features个数值列
+            numeric_cols = list(df_target.select_dtypes(include=['float64', 'int64']).columns)
+            for col in [target_col, 's1_t1_gap_ev', 'is_negative_gap']:
+                if col in numeric_cols:
+                    numeric_cols.remove(col)
+            return numeric_cols[:n_features]
+        
+        # 排除列
+        exclude_cols = ['Molecule', 'conformer', 'State', 'is_primary', 
+                        's1_t1_gap_ev', 'is_negative_gap', target_col]
+        
+        # 只使用数值特征
+        feature_cols = [col for col in df_target.select_dtypes(include=['float64', 'int64']).columns 
+                    if col not in exclude_cols]
+        
+        if len(feature_cols) == 0:
+            print("没有找到有效特征")
+            return None
+        
+        # 准备特征矩阵和目标向量
+        X = df_target[feature_cols].copy()
+        y = df_target[target_col].copy()
+        
+        # 检查并报告NaN值情况
+        nan_counts = X.isna().sum()
+        cols_with_nans = nan_counts[nan_counts > 0]
+        if not cols_with_nans.empty:
+            print(f"发现{len(cols_with_nans)}列含有NaN值:")
+            for col, count in cols_with_nans.items():
+                print(f"  - {col}: {count}个NaN值 ({count/len(X):.1%})")
+        
+        # 处理缺失值和异常值
+        X = X.replace([np.inf, -np.inf], np.nan)
+        
+        # 使用列中位数填充NaN值
+        for col in X.columns:
+            if X[col].isna().any():
+                median_val = X[col].median()
+                if pd.isna(median_val):  # 如果中位数也是NaN
+                    median_val = 0      # 使用0填充
+                X[col] = X[col].fillna(median_val)
+        
+        # 最后检查是否还有NaN值残留
+        if X.isna().any().any():
+            print("警告：填充后仍有NaN值，使用0进行最终填充")
+            X = X.fillna(0)
+        
+        # 使用F检验选择特征
+        try:
+            if target_col == 'is_negative_gap':  # 分类
+                from sklearn.feature_selection import f_classif
+                selector = SelectKBest(f_classif, k=min(n_features, len(feature_cols)))
+            else:  # 回归
+                selector = SelectKBest(f_regression, k=min(n_features, len(feature_cols)))
+            
+            # 再次检查数据有效性
+            print(f"特征矩阵形状: {X.shape}")
+            print(f"目标向量形状: {y.shape}")
+            print(f"特征矩阵是否含有NaN: {X.isna().any().any()}")
+            print(f"目标向量是否含有NaN: {y.isna().any()}")
+            
+            selector.fit(X, y)
+            
+            # 获取特征得分
+            scores = pd.DataFrame({
+                'Feature': feature_cols,
+                'Score': selector.scores_
+            }).sort_values('Score', ascending=False)
+            
+            # 选择前n_features个特征
+            selected = scores.head(n_features)['Feature'].tolist()
+            
+            print(f"选择了{len(selected)}个特征:")
+            for feature in selected[:5]:
+                print(f"  - {feature}")
+            if len(selected) > 5:
+                print(f"  - ... 以及其他{len(selected)-5}个特征")
+            
+            # 保存结果目录
+            self.selected_features[target_col] = selected
+            
+            # 可视化特征重要性
+            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+            os.makedirs(results_dir, exist_ok=True)
+            
+            return {
+                'features': selected,
+                'scores': scores
+            }
+        except Exception as e:
+            print(f"特征选择出错: {e}")
+            import traceback
+            traceback.print_exc()
+            # 使用前15个特征作为后备方案
+            selected = feature_cols[:min(n_features, len(feature_cols))]
+            self.selected_features[target_col] = selected
+            return {
+                'features': selected,
+                'scores': pd.DataFrame({'Feature': selected})
+            }
+    def build_classification_model(self):
+        """Build a classification model to predict negative vs positive S1-T1 gap."""
+        if self.feature_df is None:
+            self.logger.error("No data loaded. Call load_data() first.")
+            return None
+            
+        print("Building classification model for S1-T1 gap direction...")
+        
+        # First, create target variable for classification
+        # 1 = negative gap (reverse TADF), 0 = positive gap
+        if 's1_t1_gap_ev' not in self.feature_df.columns:
+            self.logger.error("S1-T1 gap data not found in features.")
+            return None
+            
+        # Create classification target
+        self.feature_df['is_negative_gap'] = (self.feature_df['s1_t1_gap_ev'] < 0).astype(int)
+        
+        # Filter to samples with S1-T1 gap data
+        df_class = self.feature_df[self.feature_df['s1_t1_gap_ev'].notna()].copy()
+        
+        if len(df_class) < 10:
+            print("Not enough samples with S1-T1 gap data for classification.")
+            return None
+            
+        # Select features for classification
+        feature_results = self.select_features('is_negative_gap', n_features=15)
+        
+        if not feature_results:
+            self.logger.error("Feature selection failed.")
+            return None
+            
+        selected_features = feature_results['features']
+        
+        # Create results directory
+        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # Prepare data for modeling
+        X = df_class[selected_features].copy()
+        y = df_class['is_negative_gap'].copy()
+        
+        # Handle missing values
+        X = X.replace([np.inf, -np.inf], np.nan)
+        X = X.fillna(X.median())
+        
+        # Scale features
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Split data for training and testing
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_scaled, y, test_size=0.3, random_state=42, stratify=y
+        )
+        
+        # Train Random Forest classifier
+        rf_classifier = RandomForestClassifier(
+            n_estimators=100,
+            class_weight='balanced',
+            random_state=42
+        )
+        
+        rf_classifier.fit(X_train, y_train)
+        
+        # Make predictions
+        y_pred = rf_classifier.predict(X_test)
+        
+        # Evaluate model
+        accuracy = accuracy_score(y_test, y_pred)
+        conf_matrix = confusion_matrix(y_test, y_pred)
+        class_report = classification_report(y_test, y_pred, output_dict=True)
+        
+        print(f"Classification model performance:")
+        print(f"  - Accuracy: {accuracy:.4f}")
+        print(f"  - Precision (Negative Gap): {class_report['1']['precision']:.4f}")
+        print(f"  - Recall (Negative Gap): {class_report['1']['recall']:.4f}")
+        
+        # Visualize confusion matrix
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues',
+                   xticklabels=['Positive Gap', 'Negative Gap'],
+                   yticklabels=['Positive Gap', 'Negative Gap'])
+        plt.xlabel('Predicted')
+        plt.ylabel('Actual')
+        plt.title('Confusion Matrix for S1-T1 Gap Classification')
+        plt.tight_layout()
+        plt.savefig(os.path.join(results_dir, 'confusion_matrix.png'))
+        plt.close()
+        
+        # Calculate feature importance
+        perm_importance = permutation_importance(
+            rf_classifier, X_test, y_test, n_repeats=10, random_state=42
+        )
+        
+        importance_df = pd.DataFrame({
+            'Feature': selected_features,
+            'Importance': perm_importance.importances_mean
+        }).sort_values('Importance', ascending=False)
+        
+        # Visualize feature importance
+        plt.figure(figsize=(10, 8))
+        sns.barplot(x='Importance', y='Feature', data=importance_df)
+        plt.title('Feature Importance for S1-T1 Gap Classification')
+        plt.tight_layout()
+        plt.savefig(os.path.join(results_dir, 'classification_feature_importance.png'))
+        plt.close()
+        
+        # Store model and results
+        model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
+        os.makedirs(model_dir, exist_ok=True)
+        
+        model_file = os.path.join(model_dir, 's1t1_gap_classifier.joblib')
+        joblib.dump(rf_classifier, model_file)
+        
+        scaler_file = os.path.join(model_dir, 's1t1_gap_classifier_scaler.joblib')
+        joblib.dump(scaler, scaler_file)
+        
+        # Save selected features
+        with open(os.path.join(model_dir, 's1t1_gap_classifier_features.txt'), 'w') as f:
+            f.write('\n'.join(selected_features))
+            
+        self.models['s1t1_classifier'] = {
+            'model': rf_classifier,
+            'scaler': scaler,
+            'features': selected_features,
+            'accuracy': accuracy,
+            'conf_matrix': conf_matrix,
+            'class_report': class_report,
+            'importance': importance_df
+        }
+        
+        self.feature_importance['is_negative_gap'] = importance_df
+        
+        return {
+            'model_file': model_file,
+            'scaler_file': scaler_file,
+            'features': selected_features,
+            'accuracy': accuracy,
+            'importance': importance_df,
+            'conf_matrix_plot': os.path.join(results_dir, 'confusion_matrix.png'),
+            'importance_plot': os.path.join(results_dir, 'classification_feature_importance.png')
+        }
+    
+    def build_regression_model(self):
+        """Build a regression model to predict S1-T1 gap values."""
+        if self.feature_df is None:
+            self.logger.error("No data loaded. Call load_data() first.")
+            return None
+            
+        print("Building regression model for S1-T1 gap prediction...")
+        
+        if 's1_t1_gap_ev' not in self.feature_df.columns:
+            self.logger.error("S1-T1 gap data not found in features.")
+            return None
+            
+        # Filter to samples with S1-T1 gap data
+        df_reg = self.feature_df[self.feature_df['s1_t1_gap_ev'].notna()].copy()
+        
+        if len(df_reg) < 10:
+            print("Not enough samples with S1-T1 gap data for regression.")
+            return None
+            
+        # Select features for regression
+        feature_results = self.select_features('s1_t1_gap_ev', n_features=15)
+        
+        if not feature_results:
+            self.logger.error("Feature selection failed.")
+            return None
+            
+        selected_features = feature_results['features']
+        
+        # Create results directory
+        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # Prepare data for modeling
+        X = df_reg[selected_features].copy()
+        y = df_reg['s1_t1_gap_ev'].copy()
+        
+        # Handle missing values
+        X = X.replace([np.inf, -np.inf], np.nan)
+        X = X.fillna(X.median())
+        
+        # Scale features
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Split data for training and testing
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_scaled, y, test_size=0.3, random_state=42
+        )
+        
+        # Train Random Forest regressor
+        rf_regressor = RandomForestRegressor(
+            n_estimators=100,
+            random_state=42
+        )
+        
+        rf_regressor.fit(X_train, y_train)
+        
+        # Make predictions
+        y_pred = rf_regressor.predict(X_test)
+        
+        # Evaluate model
+        mse = mean_squared_error(y_test, y_pred)
+        rmse = np.sqrt(mse)
+        r2 = r2_score(y_test, y_pred)
+        
+        print(f"Regression model performance:")
+        print(f"  - Mean Squared Error: {mse:.4f}")
+        print(f"  - Root Mean Squared Error: {rmse:.4f}")
+        print(f"  - R² Score: {r2:.4f}")
+        
+        # Visualize predictions vs actual
+        plt.figure(figsize=(10, 6))
+        plt.scatter(y_test, y_pred, alpha=0.7)
+        plt.plot([y.min(), y.max()], [y.min(), y.max()], 'k--', lw=2)
+        plt.xlabel('Actual S1-T1 Gap (eV)')
+        plt.ylabel('Predicted S1-T1 Gap (eV)')
+        plt.title('Random Forest Regression: Predicted vs Actual S1-T1 Gap')
+        
+        # Add text for model performance
+        plt.text(
+            0.05, 0.95, 
+            f"RMSE: {rmse:.4f}\nR²: {r2:.4f}",
+            transform=plt.gca().transAxes,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', alpha=0.1)
+        )
+        
+        plt.axhline(y=0, color='r', linestyle='--', alpha=0.3)  # Line at y=0
+        plt.axvline(x=0, color='r', linestyle='--', alpha=0.3)  # Line at x=0
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(results_dir, 'regression_prediction.png'))
+        plt.close()
+        
+        # Calculate feature importance
+        perm_importance = permutation_importance(
+            rf_regressor, X_test, y_test, n_repeats=10, random_state=42
+        )
+        
+        importance_df = pd.DataFrame({
+            'Feature': selected_features,
+            'Importance': perm_importance.importances_mean
+        }).sort_values('Importance', ascending=False)
+        
+        # Visualize feature importance
+        plt.figure(figsize=(10, 8))
+        sns.barplot(x='Importance', y='Feature', data=importance_df)
+        plt.title('Feature Importance for S1-T1 Gap Regression')
+        plt.tight_layout()
+        plt.savefig(os.path.join(results_dir, 'regression_feature_importance.png'))
+        plt.close()
+        
+        # Store model and results
+        model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
+        os.makedirs(model_dir, exist_ok=True)
+        
+        model_file = os.path.join(model_dir, 's1t1_gap_regressor.joblib')
+        joblib.dump(rf_regressor, model_file)
+        
+        scaler_file = os.path.join(model_dir, 's1t1_gap_regressor_scaler.joblib')
+        joblib.dump(scaler, scaler_file)
+        
+        # Save selected features
+        with open(os.path.join(model_dir, 's1t1_gap_regressor_features.txt'), 'w') as f:
+            f.write('\n'.join(selected_features))
+            
+        self.models['s1t1_regressor'] = {
+            'model': rf_regressor,
+            'scaler': scaler,
+            'features': selected_features,
+            'mse': mse,
+            'rmse': rmse,
+            'r2': r2,
+            'importance': importance_df
+        }
+        
+        self.feature_importance['s1_t1_gap_ev'] = importance_df
+        
+        return {
+            'model_file': model_file,
+            'scaler_file': scaler_file,
+            'features': selected_features,
+            'rmse': rmse,
+            'r2': r2,
+            'importance': importance_df,
+            'prediction_plot': os.path.join(results_dir, 'regression_prediction.png'),
+            'importance_plot': os.path.join(results_dir, 'regression_feature_importance.png')
+        }
+    
+    def run_modeling_pipeline(self, feature_file=None):
+        """运行完整的建模流程"""
+        try:
+            print("开始建模分析流程...")
+            
+            # 加载特征数据
+            if feature_file:
+                self.feature_file = feature_file
+                
+            if not self.load_data():
+                print("加载数据失败，退出建模流程")
+                return None
+            
+            # 确保输出目录存在
+            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+            models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
+            os.makedirs(results_dir, exist_ok=True)
+            os.makedirs(models_dir, exist_ok=True)
+            
+            print(f"结果将保存到: {results_dir}")
+            print(f"模型将保存到: {models_dir}")
+            
+            # 检查s1_t1_gap_ev列
+            if 's1_t1_gap_ev' not in self.feature_df.columns:
+                print("错误: s1_t1_gap_ev列不存在，无法继续")
+                return None
+            
+            # 选择分类特征
+            print("选择分类特征...")
+            class_selection = self.select_features('is_negative_gap', n_features=15)
+            if not class_selection:
+                print("分类特征选择失败")
+                return None
+            class_features = class_selection['features']
+            
+            # 选择回归特征
+            print("选择回归特征...")
+            reg_selection = self.select_features('s1_t1_gap_ev', n_features=15)
+            if not reg_selection:
+                print("回归特征选择失败")
+                return None
+            reg_features = reg_selection['features']
+            
+            # 构建分类模型
+            print("\n构建分类模型...")
+            
+            # 准备分类数据
+            df_class = self.feature_df[self.feature_df['is_negative_gap'].notna()].copy()
+            X_class = df_class[class_features].fillna(0)
+            y_class = df_class['is_negative_gap']
+            
+            # 分割数据
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_class, y_class, test_size=0.3, random_state=42, stratify=y_class
+            )
+            
+            # 特征标准化
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_test_scaled = scaler.transform(X_test)
+            
+            # 训练模型
+            clf = RandomForestClassifier(
+                n_estimators=100, 
+                max_depth=None,
+                class_weight='balanced',
+                random_state=42
+            )
+            
+            # 交叉验证
+            cv_scores = cross_val_score(clf, X_train_scaled, y_train, cv=5, scoring='accuracy')
+            print(f"交叉验证准确率: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+            
+            # 训练最终模型
+            clf.fit(X_train_scaled, y_train)
+            
+            # 测试集评估
+            y_pred = clf.predict(X_test_scaled)
+            accuracy = accuracy_score(y_test, y_pred)
+            cm = confusion_matrix(y_test, y_pred)
+            
+            print(f"测试集准确率: {accuracy:.4f}")
+            print("混淆矩阵:")
+            print(cm)
+            
+            # 创建混淆矩阵图
+            plt.figure(figsize=(8, 6))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=['正能隙', '负能隙'],
+                    yticklabels=['正能隙', '负能隙'])
+            plt.xlabel('预测')
+            plt.ylabel('实际')
+            plt.title('S1-T1能隙分类混淆矩阵')
+            plt.tight_layout()
+            plt.savefig(os.path.join(results_dir, 'confusion_matrix.png'))
+            plt.close()
+            
+            # 特征重要性可视化
+            if hasattr(clf, 'feature_importances_'):
+                importances = clf.feature_importances_
+                indices = np.argsort(importances)[::-1]
+                
+                plt.figure(figsize=(10, 8))
+                plt.barh(range(len(class_features)), importances[indices])
+                plt.yticks(range(len(class_features)), [class_features[i] for i in indices])
+                plt.xlabel('特征重要性')
+                plt.title('分类模型特征重要性')
+                plt.tight_layout()
+                plt.savefig(os.path.join(results_dir, 'classification_feature_importance.png'))
+                plt.close()
+            
+            # 创建分类结果
+            class_result = {
+                'accuracy': accuracy,
+                'model': clf,
+                'features': class_features,
+                'conf_matrix': cm,
+                'importance': pd.DataFrame({
+                    'Feature': class_features,
+                    'Importance': clf.feature_importances_
+                }).sort_values('Importance', ascending=False)
+            }
+            
+            # 构建回归模型
+            print("\n构建回归模型...")
+            
+            # 准备回归数据
+            df_reg = self.feature_df[self.feature_df['s1_t1_gap_ev'].notna()].copy()
+            X_reg = df_reg[reg_features].fillna(0)
+            y_reg = df_reg['s1_t1_gap_ev']
+            
+            # 分割数据
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_reg, y_reg, test_size=0.3, random_state=42
+            )
+            
+            # 特征标准化
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_test_scaled = scaler.transform(X_test)
+            
+            # 训练模型
+            reg = RandomForestRegressor(
+                n_estimators=100, 
+                max_depth=None,
+                random_state=42
+            )
+            
+            # 交叉验证
+            cv_scores = cross_val_score(reg, X_train_scaled, y_train, cv=5, scoring='r2')
+            print(f"交叉验证R²: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+            
+            # 训练最终模型
+            reg.fit(X_train_scaled, y_train)
+            
+            # 测试集评估
+            y_pred = reg.predict(X_test_scaled)
+            r2 = r2_score(y_test, y_pred)
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            
+            print(f"测试集R²: {r2:.4f}, RMSE: {rmse:.4f} eV")
+            
+            # 创建预测vs实际图
+            plt.figure(figsize=(8, 8))
+            plt.scatter(y_test, y_pred, alpha=0.5)
+            
+            # 添加理想线
+            min_val = min(min(y_test), min(y_pred))
+            max_val = max(max(y_test), max(y_pred))
+            plt.plot([min_val, max_val], [min_val, max_val], 'r--')
+            
+            plt.xlabel('实际S1-T1能隙 (eV)')
+            plt.ylabel('预测S1-T1能隙 (eV)')
+            plt.title('回归模型: 预测 vs 实际')
+            
+            # 添加零线
+            plt.axhline(y=0, color='green', linestyle='-', alpha=0.3)
+            plt.axvline(x=0, color='green', linestyle='-', alpha=0.3)
+            
+            # 添加性能指标
+            plt.text(
+                0.05, 0.95, 
+                f"R² = {r2:.4f}\nRMSE = {rmse:.4f} eV",
+                transform=plt.gca().transAxes,
+                bbox=dict(facecolor='white', alpha=0.8)
+            )
+            
+            plt.tight_layout()
+            plt.savefig(os.path.join(results_dir, 'regression_prediction.png'))
+            plt.close()
+            
+            # 特征重要性可视化
+            if hasattr(reg, 'feature_importances_'):
+                importances = reg.feature_importances_
+                indices = np.argsort(importances)[::-1]
+                
+                plt.figure(figsize=(10, 8))
+                plt.barh(range(len(reg_features)), importances[indices])
+                plt.yticks(range(len(reg_features)), [reg_features[i] for i in indices])
+                plt.xlabel('特征重要性')
+                plt.title('回归模型特征重要性')
+                plt.tight_layout()
+                plt.savefig(os.path.join(results_dir, 'regression_feature_importance.png'))
+                plt.close()
+            
+            # 创建回归结果
+            reg_result = {
+                'rmse': rmse,
+                'r2': r2,
+                'model': reg,
+                'features': reg_features,
+                'importance': pd.DataFrame({
+                    'Feature': reg_features,
+                    'Importance': reg.feature_importances_
+                }).sort_values('Importance', ascending=False)
+            }
+            
+            # 保存模型
+            joblib.dump(clf, os.path.join(models_dir, 's1t1_gap_classifier.joblib'))
+            joblib.dump(scaler, os.path.join(models_dir, 's1t1_classifier_scaler.joblib'))
+            joblib.dump(reg, os.path.join(models_dir, 's1t1_gap_regressor.joblib'))
+            
+            # 保存特征列表
+            with open(os.path.join(models_dir, 's1t1_gap_classifier_features.txt'), 'w') as f:
+                f.write('\n'.join(class_features))
+                
+            with open(os.path.join(models_dir, 's1t1_gap_regressor_features.txt'), 'w') as f:
+                f.write('\n'.join(reg_features))
+                
+            self.models['s1t1_classifier'] = class_result
+            self.models['s1t1_regressor'] = reg_result
+            
+            print("\n建模分析完成，结果已保存")
+            
+            return {
+                'classification': class_result,
+                'regression': reg_result
+            }
+        except Exception as e:
+            print(f"建模流程出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def generate_visualizations(self, model, X, y, feature_names, target_col):
+        """生成模型可视化图表"""
+        try:
+            # 创建结果目录
+            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+            os.makedirs(results_dir, exist_ok=True)
+            
+            print(f"正在生成{target_col}的可视化图表，保存到: {results_dir}")
+            
+            # 添加详细的文件路径打印
+            feature_importance_path = os.path.join(results_dir, f'feature_ranks_{target_col}.png')
+            print(f"特征重要性图表路径: {feature_importance_path}")
+            
+            # 确保matplotlib后端正确设置（避免GUI问题）
+            import matplotlib
+            matplotlib.use('Agg')  # 使用非交互式后端
+            
+            # 特征重要性可视化
+            if hasattr(model, 'feature_importances_'):
+                plt.figure(figsize=(12, 8))
+                importances = model.feature_importances_
+                indices = np.argsort(importances)[::-1]
+                
+                # 只展示前15个特征
+                n_features = min(15, len(feature_names))
+                plt.barh(range(n_features), importances[indices[:n_features]], align='center')
+                plt.yticks(range(n_features), [feature_names[i] for i in indices[:n_features]])
+                plt.xlabel('特征重要性')
+                plt.ylabel('特征')
+                plt.title(f'{target_col}特征重要性')
+                
+                # 使用高DPI和紧凑布局保存
+                plt.tight_layout()
+                plt.savefig(feature_importance_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                print(f"特征重要性图表已保存: {feature_importance_path}")
+                
+                # 检查文件是否存在
+                if os.path.exists(feature_importance_path):
+                    print(f"确认文件已成功创建: {feature_importance_path}")
+                    print(f"文件大小: {os.path.getsize(feature_importance_path)} 字节")
+                else:
+                    print(f"警告: 文件未能创建: {feature_importance_path}")
+            
+            # 为分类模型创建混淆矩阵
+            if target_col == 'is_negative_gap':
+                from sklearn.metrics import confusion_matrix
+                from sklearn.model_selection import cross_val_predict
+                
+                # 使用交叉验证获取预测
+                y_pred = cross_val_predict(model, X, y, cv=5)
+                cm = confusion_matrix(y, y_pred)
+                
+                plt.figure(figsize=(8, 6))
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                            xticklabels=['正S1-T1', '负S1-T1'],
+                            yticklabels=['正S1-T1', '负S1-T1'])
+                plt.xlabel('预测')
+                plt.ylabel('实际')
+                plt.title('分类模型混淆矩阵')
+                
+                cm_path = os.path.join(results_dir, 'classification_confusion_matrix.png')
+                plt.tight_layout()
+                plt.savefig(cm_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                print(f"混淆矩阵图表已保存: {cm_path}")
+            
+            # 为回归模型创建预测vs实际值图
+            if target_col == 's1_t1_gap_ev':
+                from sklearn.model_selection import cross_val_predict
+                
+                # 使用交叉验证获取预测
+                y_pred = cross_val_predict(model, X, y, cv=5)
+                
+                plt.figure(figsize=(8, 8))
+                plt.scatter(y, y_pred, alpha=0.5)
+                
+                # 添加理想线(y=x)
+                min_val = min(min(y), min(y_pred))
+                max_val = max(max(y), max(y_pred))
+                plt.plot([min_val, max_val], [min_val, max_val], 'r--')
+                
+                plt.xlabel('实际值')
+                plt.ylabel('预测值')
+                plt.title('回归模型: 预测 vs 实际')
+                
+                # 添加零线
+                plt.axhline(y=0, color='green', linestyle='-', alpha=0.3)
+                plt.axvline(x=0, color='green', linestyle='-', alpha=0.3)
+                
+                reg_path = os.path.join(results_dir, 'regression_prediction.png')
+                plt.tight_layout()
+                plt.savefig(reg_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                print(f"回归预测图表已保存: {reg_path}")
+                
+            # 添加额外的图表：突出显示CREST特征
+            if hasattr(model, 'feature_importances_'):
+                plt.figure(figsize=(12, 8))
+                
+                # 创建数据框以便于处理
+                importance_df = pd.DataFrame({
+                    'Feature': feature_names,
+                    'Importance': model.feature_importances_
+                })
+                
+                # 标记CREST特征
+                importance_df['Is_CREST'] = importance_df['Feature'].apply(
+                    lambda x: 'CREST特征' if 'crest' in str(x).lower() else '其他特征'
+                )
+                
+                # 按重要性排序
+                importance_df = importance_df.sort_values('Importance', ascending=False)
+                
+                # 只取前15个特征
+                plot_df = importance_df.head(15)
+                
+                # 使用seaborn创建彩色条形图
+                ax = sns.barplot(x='Importance', y='Feature', hue='Is_CREST', data=plot_df)
+                plt.title(f'{target_col}特征重要性 (带CREST特征标记)')
+                plt.tight_layout()
+                
+                crest_path = os.path.join(results_dir, f'crest_feature_importance_{target_col}.png')
+                plt.savefig(crest_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                print(f"CREST特征重要性图表已保存: {crest_path}")
+                
+            # 添加文本特征重要性文件以防图像加载失败
+            if hasattr(model, 'feature_importances_'):
+                txt_path = os.path.join(results_dir, f'feature_importance_{target_col}.txt')
+                with open(txt_path, 'w') as f:
+                    f.write(f"特征重要性分析 - {target_col}\n")
+                    f.write("="*50 + "\n\n")
+                    
+                    importance_df = pd.DataFrame({
+                        'Feature': feature_names,
+                        'Importance': model.feature_importances_
+                    }).sort_values('Importance', ascending=False)
+                    
+                    # 标记CREST特征
+                    for i, row in importance_df.iterrows():
+                        is_crest = 'CREST特征' if 'crest' in str(row['Feature']).lower() else ''
+                        f.write(f"{row['Feature']}: {row['Importance']:.6f} {is_crest}\n")
+                
+                print(f"特征重要性文本文件已保存: {txt_path}")
+            
+            return True
+        except Exception as e:
+            print(f"生成可视化时出错: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False

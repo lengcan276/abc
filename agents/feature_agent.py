@@ -347,6 +347,47 @@ class FeatureAgent:
             feature_df = pd.DataFrame(expanded_data)
             print(f"已将汇总数据转换为详细格式，共 {len(feature_df)} 行")
         
+        # 检查是否包含结构特征
+        structure_columns = [
+            'conjugation_path_count', 'max_conjugation_length', 
+            'dihedral_angles_count', 'max_dihedral_angle', 'avg_dihedral_angle',
+            'twisted_bonds_count', 'twist_ratio',
+            'hydrogen_bonds_count', 'avg_h_bond_strength', 'max_h_bond_strength',
+            'planarity', 'aromatic_rings_count'
+        ]
+        
+        has_structure_data = any(col in feature_df.columns for col in structure_columns)
+        
+        # 如果没有结构数据，可以提供警告
+        if not has_structure_data:
+            print("警告：数据中未包含分子结构特征。部分分析功能将受限。")
+        else:
+            print(f"检测到分子结构特征，包含 {sum(1 for col in structure_columns if col in feature_df.columns)} 种结构特征。")
+            # 为结构特征创建衍生特征
+            if 'max_dihedral_angle' in feature_df.columns:
+                # 创建扭曲类别特征
+                feature_df['twist_category'] = pd.cut(
+                    feature_df['max_dihedral_angle'],
+                    bins=[0, 20, 40, 60, 90],
+                    labels=['低扭曲 (<20°)', '中等扭曲 (20-40°)', '高扭曲 (40-60°)', '极高扭曲 (>60°)']
+                )
+                
+            if 'max_conjugation_length' in feature_df.columns:
+                # 创建共轭长度类别
+                feature_df['conjugation_category'] = pd.cut(
+                    feature_df['max_conjugation_length'],
+                    bins=[0, 5, 10, 15, float('inf')],
+                    labels=['短共轭 (<5)', '中等共轭 (5-10)', '长共轭 (10-15)', '超长共轭 (>15)']
+                )
+                
+            if 'hydrogen_bonds_count' in feature_df.columns:
+                # 创建氢键类别
+                feature_df['h_bond_category'] = pd.cut(
+                    feature_df['hydrogen_bonds_count'],
+                    bins=[-1, 0, 2, float('inf')],
+                    labels=['无氢键', '少量氢键 (1-2)', '多氢键 (>2)']
+                )
+        
         # 创建新特征
         # 1. 能量差异特征
         if 'energy' in feature_df.columns:
@@ -453,17 +494,80 @@ class FeatureAgent:
             if 'dipole' in feature_df.columns and 'planarity_index' in feature_df.columns:
                 feature_df['dipole_planarity'] = feature_df['dipole'].fillna(0) * feature_df['planarity_index']
 
-        # 11. 处理无穷大和 NaN 值
+        # 11. 创建结构特征与其他特征的组合
+        if has_structure_data:
+            print("创建结构特征与其他特征的组合...")
+            
+            # S1-T1能隙与结构特征的组合
+            if 's1_t1_gap_ev' in feature_df.columns:
+                # 与扭曲的关系
+                if 'twist_ratio' in feature_df.columns:
+                    feature_df['s1t1_vs_twist'] = feature_df['s1_t1_gap_ev'] * feature_df['twist_ratio']
+                    
+                if 'max_dihedral_angle' in feature_df.columns:
+                    # 扭曲角与S1-T1能隙的协同效应
+                    safe_angle = feature_df['max_dihedral_angle'].apply(lambda x: max(x, 1.0))
+                    feature_df['s1t1_per_dihedral'] = feature_df['s1_t1_gap_ev'] / safe_angle
+                    
+                # 与平面性的关系
+                if 'planarity' in feature_df.columns:
+                    # 平面性越高（接近1），分母越小，效应越强
+                    safe_nonplanar = (1.01 - feature_df['planarity'].clip(0, 0.99))
+                    feature_df['s1t1_vs_nonplanar'] = feature_df['s1_t1_gap_ev'] / safe_nonplanar
+                    
+                # 与共轭的关系
+                if 'max_conjugation_length' in feature_df.columns:
+                    # 确保分母不为零
+                    safe_conj = feature_df['max_conjugation_length'].apply(lambda x: max(x, 1))
+                    feature_df['s1t1_vs_conjugation'] = feature_df['s1_t1_gap_ev'] / safe_conj
+                
+                # 与氢键的关系
+                if 'hydrogen_bonds_count' in feature_df.columns:
+                    # 考虑氢键对S1-T1能隙的影响
+                    h_bond_factor = feature_df['hydrogen_bonds_count'] + 1  # 加1避免零值
+                    feature_df['s1t1_vs_hbonds'] = feature_df['s1_t1_gap_ev'] * h_bond_factor
+                    
+                if 'max_h_bond_strength' in feature_df.columns:
+                    # 氢键强度对S1-T1能隙的影响
+                    # 避免除以零
+                    safe_h_bond = feature_df['max_h_bond_strength'].fillna(0.01).apply(lambda x: max(x, 0.01))
+                    feature_df['s1t1_per_hbond_strength'] = feature_df['s1_t1_gap_ev'] / safe_h_bond
+            
+            # 前线轨道与结构特征的关系
+            if 'homo_num' in feature_df.columns and 'lumo_num' in feature_df.columns:
+                if 'max_dihedral_angle' in feature_df.columns:
+                    # 扭曲角对HOMO-LUMO能隙的影响
+                    feature_df['gap_vs_dihedral'] = (feature_df['lumo_num'] - feature_df['homo_num']) * feature_df['max_dihedral_angle'] / 90
+                    
+                if 'planarity' in feature_df.columns:
+                    # 平面性对前线轨道的影响
+                    feature_df['homo_vs_planarity'] = feature_df['homo_num'] * feature_df['planarity']
+                    feature_df['lumo_vs_planarity'] = feature_df['lumo_num'] * feature_df['planarity']
+                    
+                if 'aromatic_rings_count' in feature_df.columns:
+                    # 芳香环数量对轨道能量的影响
+                    feature_df['homo_per_aromatic'] = feature_df['homo_num'] / (feature_df['aromatic_rings_count'] + 1)
+                    feature_df['lumo_per_aromatic'] = feature_df['lumo_num'] / (feature_df['aromatic_rings_count'] + 1)
+        
+        # 12. 处理无穷大和 NaN 值
         # 用 NaN 替换无穷大值
         feature_df = feature_df.replace([np.inf, -np.inf], np.nan)
 
+       
+        # 检查并报告潜在的问题列
         # 检查并报告潜在的问题列
         problematic_cols = []
-        for col in feature_df.select_dtypes(include=['float64', 'int64']).columns:
-            if feature_df[col].isna().any():
-                na_percent = feature_df[col].isna().mean() * 100
-                if na_percent > 10:  # 如果超过 10% 的值是 NaN
-                    problematic_cols.append((col, na_percent))
+        if feature_df is not None and not feature_df.empty:
+            for col in feature_df.select_dtypes(include=['float64', 'int64']).columns:
+                try:
+                    # 使用更明确的写法
+                    if feature_df[col].isna().any() == True:
+                        na_percent = feature_df[col].isna().mean() * 100
+                        if na_percent > 10:  # 如果超过 10% 的值是 NaN
+                            problematic_cols.append((col, na_percent))
+                except Exception as e:
+                    print(f"处理列 {col} 时出错: {str(e)}")
+        
 
         if problematic_cols:
             print("警告：以下列有较高的 NaN 百分比：")

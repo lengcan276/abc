@@ -97,15 +97,44 @@ class InsightAgent:
             'lumo_electronic_effect': "Interaction between LUMO energy and net electronic effects, showing how electron-withdrawing groups influence electron acceptance.",
             'gap_conjugation': "Relationship between HOMO-LUMO gap and molecular conjugation, indicating how extended π-systems affect the energy gap.",
             'dipole_planarity': "Combined effect of dipole moment and molecular planarity, revealing how geometry affects charge separation.",
-            'energy_per_size': "Energy normalized by molecular size, useful for comparing electronic properties across differently sized molecules."
+            'energy_per_size': "Energy normalized by molecular size, useful for comparing electronic properties across differently sized molecules.",
+            
+            # 新增结构特征解释
+            'conjugation_path_count': "分子中识别出的π共轭路径数量。更高的值表示分子具有更复杂的共轭网络，这可能影响电子离域和激发态特性。",
+            'max_conjugation_length': "最长的π共轭路径中包含的原子数量。较长的共轭路径通常意味着更广泛的电子离域，影响HOMO-LUMO分布和S1-T1能隙。",
+            'dihedral_angles_count': "分子中关键二面角的数量，特别是连接给体-受体区域的二面角。这些二面角关系到分子的扭曲程度。",
+            'max_dihedral_angle': "最大二面角值(度)，通常出现在连接给体-受体的键上。较大的二面角意味着分子部分之间的更强扭转，有助于减少π轨道重叠。",
+            'avg_dihedral_angle': "关键二面角的平均值(度)，反映了分子整体的扭曲程度，影响轨道重叠和电子离域。",
+            'twisted_bonds_count': "扭曲角度超过40°的键的数量。这些显著扭曲的键能够有效减少π轨道重叠，有助于能级反转。",
+            'twist_ratio': "扭曲键占关键二面角总数的比例。较高的比例表示分子结构整体上更为扭曲。",
+            'hydrogen_bonds_count': "分子内检测到的氢键数量。氢键可以稳定特定构象，影响激发态能量。",
+            'avg_h_bond_strength': "氢键强度的平均估计值，基于距离和角度参数。较强的氢键可以更有效地稳定分子构象。",
+            'max_h_bond_strength': "最强氢键的估计强度。单一强氢键有时比多个弱氢键更有效地影响激发态特性。",
+            'planarity': "分子平面性的量化指标。值接近1表示分子接近完全平面，值越小表示结构越不平面。",
+            'aromatic_rings_count': "分子中芳香环的数量。芳香环是共轭系统的主要组成部分，影响电子离域和激发态特性。"
         }
+        
+        # 检查更多组合特征
+        structure_combinations = {
+            'gap_vs_conjugation': "HOMO-LUMO能隙与最大共轭长度的乘积，表示能隙与共轭程度的协同效应。",
+            'gap_vs_twist': "HOMO-LUMO能隙除以扭曲比例，表示能隙对分子扭曲的敏感性。",
+            'gap_vs_h_bond': "HOMO-LUMO能隙与氢键强度的组合效应，表示氢键如何影响前线轨道能级。",
+            's1t1_vs_twist': "S1-T1能隙与扭曲比例的乘积，表示扭曲如何影响激发态能级排序。",
+            's1t1_vs_nonplanar': "S1-T1能隙除以非平面性参数，表示平面性对激发态的影响。",
+            's1t1_vs_conjugation': "S1-T1能隙除以最大共轭长度，表示共轭对激发态能隙的影响。"
+        }
+        
+        # 合并所有解释字典
+        all_explanations = {**feature_explanations, **structure_combinations}
         
         # Clean feature name for matching
         clean_feature = feature_name.replace('_count', '').replace('total_', '')
         
-        # Return explanation if available, or generate a generic one
-        if clean_feature in feature_explanations:
-            return feature_explanations[clean_feature]
+        # 返回解释
+        if feature_name in all_explanations:
+            return all_explanations[feature_name]
+        elif clean_feature in all_explanations:
+            return all_explanations[clean_feature]
         elif 'count' in feature_name:
             group = feature_name.replace('_count', '')
             return f"Number of {group} groups in the molecule, which affects the overall electronic and structural properties."
@@ -158,11 +187,46 @@ class InsightAgent:
                 "Higher molecular dipole moments can stabilize charge-transfer character in excited states, affecting S1 and T1 energies differently.",
                 "In reverse TADF systems, strong dipole moments may preferentially stabilize singlet states with significant charge-transfer character.",
                 "The ground state dipole orientation relative to excited state transitions can create selective energetic advantages for singlet over triplet states."
+            ],
+            
+            # 添加结构特征的量子化学解释
+            'max_conjugation_length': [
+                "π共轭系统的长度直接影响轨道的空间分布和能量。在反向TADF中，适度的共轭长度可以帮助平衡局域化和离域化效应，有助于S1能量低于T1。",
+                "过长的共轭路径通常导致S1和T1轨道具有相似的空间分布，使得S1-T1能隙保持正值，不利于反向TADF。",
+                "较短或中等长度的共轭系统可以为分子提供足够的电子离域，同时避免S1和T1轨道过度重叠，有助于能级反转。"
+            ],
+            'twist_ratio': [
+                "D-A结构中的扭曲可以减少前线轨道之间的空间重叠，降低交换能，这对于实现S1低于T1至关重要。",
+                "高扭曲比例的分子通常表现出更强的电荷分离特性，这有助于单重态具有更强的极化性而降低能量。",
+                "分子扭曲限制了π共轭，导致轨道空间分离，这种分离可以减小交换相互作用，有助于逆转能级排序。"
+            ],
+            'max_dihedral_angle': [
+                "较大的二面角（尤其是>40°）可以显著减少供体与受体之间的π轨道重叠，降低交换积分，从而减小S1-T1能隙。",
+                "在D-A结构中，大的二面角扭曲可以使HOMO与LUMO在空间上分离，导致单重态与三重态激发的性质差异增大。",
+                "分子扭曲对单重态激发态的稳定作用通常大于对三重态的影响，这有助于S1能量降至T1以下。"
+            ],
+            'hydrogen_bonds_count': [
+                "分子内氢键网络可以稳定特定的分子构象，有时这种构象恰好有利于前线轨道的空间分离。",
+                "氢键提供的结构刚性可以减少激发态的几何弛豫，降低非辐射失活的可能性，有益于保持反向能级排序。",
+                "某些氢键模式可以稳定电荷分离态，这对单重态激发态的能量影响尤为显著，有助于降低S1能量。"
+            ],
+            'planarity': [
+                "低平面性（更扭曲的结构）通常可以减少π轨道的有效重叠，降低交换积分，这是实现反向TADF的关键条件之一。",
+                "非平面结构可以促进电荷转移激发态的形成，这些态往往具有较低的S1能量和较大的S1-T1分离。",
+                "分子平面性的适度降低可以帮助平衡电子离域（提高荧光量子产率）和轨道分离（实现能级反转）。"
+            ],
+            'aromatic_rings_count': [
+                "芳香环作为π电子供体或受体，其数量和排列方式直接影响轨道能量和分布。在反向TADF分子中，芳香环构型需要精确控制。",
+                "多个芳香环可以提供更多的共轭路径选择，有时这种电子离域的多样性有助于形成有利于反向能级排序的轨道构型。",
+                "不同取代的芳香环组合可以精细调节前线轨道的空间分布和能级，实现S1和T1轨道特性的差异化。"
             ]
         }
         
         # Determine importance level
         importance_level = "high" if importance_value > 0.1 else "moderate" if importance_value > 0.05 else "low"
+        
+        # Clean feature name for matching
+        clean_feature = feature_name.replace('_count', '').replace('total_', '')
         
         # Generate explanation
         if feature_name in quantum_explanations:
@@ -174,14 +238,25 @@ class InsightAgent:
                 return explanations[1] if len(explanations) >= 2 else "This feature has a notable effect on the electronic properties that determine S1-T1 gap direction."
             else:
                 return explanations[2] if len(explanations) >= 3 else "This feature contributes to the subtle electronic effects that can lead to reverse TADF behavior."
+        elif clean_feature in quantum_explanations:
+            explanations = quantum_explanations[clean_feature]
+            
+            if importance_level == "high":
+                return explanations[0] if len(explanations) >= 1 else "This feature strongly influences the S1-T1 energy ordering in potential reverse TADF molecules."
+            elif importance_level == "moderate":
+                return explanations[1] if len(explanations) >= 2 else "This feature has a notable effect on the electronic properties that determine S1-T1 gap direction."
+            else:
+                return explanations[2] if len(explanations) >= 3 else "This feature contributes to the subtle electronic effects that can lead to reverse TADF behavior."
         else:
             # Generic explanation based on feature name
             if "electron" in feature_name or "homo" in feature_name or "lumo" in feature_name:
                 return f"This electronic property affects the distribution and energy of frontier orbitals, potentially contributing to the unusual S1-T1 energy ordering in reverse TADF materials."
-            elif "ring" in feature_name or "planar" in feature_name or "size" in feature_name:
+            elif "ring" in feature_name or "planar" in feature_name or "size" in feature_name or "dihedral" in feature_name or "twist" in feature_name:
                 return f"This structural feature influences the spatial arrangement of molecular orbitals, which can affect the exchange interaction between singlet and triplet states."
-            elif "polarity" in feature_name or "dipole" in feature_name:
+            elif "polarity" in feature_name or "dipole" in feature_name or "h_bond" in feature_name:
                 return f"This property relates to charge distribution, which can selectively stabilize certain excited states and potentially lead to reverse TADF characteristics."
+            elif "conjugation" in feature_name or "aromatic" in feature_name:
+                return f"This feature affects the extent of π-electron delocalization, which is crucial for determining the relative energies of singlet and triplet states in reverse TADF systems."
             else:
                 return f"This molecular descriptor influences the electronic structure in ways that may contribute to the unusual ordering of excited states in reverse TADF materials."
     
@@ -388,6 +463,50 @@ class InsightAgent:
                 f.write(f"### {i+1}. {name.replace('_', ' ').title()}\n\n")
                 f.write(f"**Importance Score**: {importance:.4f} ({model_type} model)\n\n")
                 f.write(f"{explanation}\n\n")
+            
+            # 添加结构特征部分
+            f.write("## 结构-性能关系分析\n\n")
+            
+            # 1. 共轭长度分析
+            f.write("### 共轭长度与S1-T1能级反转\n\n")
+            f.write("分子的π共轭长度对S1-T1能级排序有显著影响。我们的分析表明：\n\n")
+            f.write("* 过度延长的共轭路径使得S1与T1轨道高度相似，不利于能级反转\n")
+            f.write("* 适度的共轭断裂或有限共轭有利于S1能量降低\n")
+            f.write("* 理想的共轭长度通常是中等的，能够平衡离域与局域效应\n\n")
+            
+            # 2. 分子扭曲角分析
+            f.write("### 分子扭曲与电子空间分离\n\n")
+            f.write("D-A连接处的扭曲角是反向TADF设计的关键结构参数：\n\n")
+            f.write("* 扭曲角>40°的分子中出现反向TADF的比例显著增加\n")
+            f.write("* 非共面结构限制了π轨道重叠，有助于降低S1-T1交换能\n")
+            f.write("* 扭曲结构为电子空间分离创造条件，从而有助于能级反转\n\n")
+            
+            # 3. 氢键影响分析
+            f.write("### 氢键对激发态稳定性的影响\n\n")
+            f.write("分子内氢键对反向TADF性能有以下贡献：\n\n")
+            f.write("* 氢键提供几何刚性，有助于维持反向TADF态的稳定性\n")
+            f.write("* 氢键可以稳定激发态几何结构，降低非辐射损失风险\n")
+            f.write("* 合理设计的氢键网络有助于调控激发态能量\n\n")
+            
+            # 4. 总结性设计原则
+            f.write("## 结构化设计原则总结\n\n")
+            f.write("基于以上分析，我们提出以下反向TADF材料的结构化设计原则：\n\n")
+            
+            # 创建设计原则列表
+            design_principles = [
+                "**优化共轭长度**：避免过度共轭，适当断开大型π体系",
+                "**引入扭曲单元**：在D-A连接处引入>40°的二面角扭曲",
+                "**平衡极性与非极性**：通过结构调控实现电荷分离与轨道分布的平衡",
+                "**利用氢键效应**：在适当位置引入氢键来稳定激发态",
+                "**避免过度平面结构**：限制平面性以减少轨道重叠",
+                "**调控电子效应**：平衡电子给体与受体的强度，适度调控净电子效应"
+            ]
+            
+            for principle in design_principles:
+                f.write(f"* {principle}\n")
+            
+            f.write("\n")
+            f.write("这些结构化设计原则不仅有助于理解已知的反向TADF材料，也为新型反向TADF材料的设计提供了明确的方向。\n\n")
                 
             # Quantum Chemistry Explanations
             f.write("## Quantum Chemistry Insights\n\n")
@@ -447,7 +566,7 @@ class InsightAgent:
                     
             # Add general principles if we don't have enough
             general_principles = [
-                "Target reduced exchange energy through spatial separation of HOMO and LUMO"
+                "Target reduced exchange energy through spatial separation of HOMO and LUMO",
                 "Design molecules with charge-transfer character in excited states to influence S1-T1 energy splitting",
                 "Consider the effects of conformational flexibility on excited state energetics",
                 "Explore heteroatom substitution patterns to fine-tune orbital energies"

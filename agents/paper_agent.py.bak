@@ -1,0 +1,136 @@
+# agents/paper_agent.py
+import os
+import logging
+from utils.gatsbi_tools import GenerateGatsbiPromptTool
+from langchain.agents import Tool
+from langchain.agents import initialize_agent
+from langchain.agents import AgentType
+from langchain.chat_models import ChatOpenAI
+
+class PaperAgent:
+    """
+    Agent responsible for generating scientific papers based on the results
+    from the Reverse TADF analysis system.
+    """
+    
+    def __init__(self, modeling_results=None, exploration_results=None, insight_results=None):
+        """Initialize the PaperAgent."""
+        self.modeling_results = modeling_results
+        self.exploration_results = exploration_results
+        self.insight_results = insight_results
+        self.paper_data = None
+        self.setup_logging()
+        
+    def setup_logging(self):
+        """Configure logging for the paper agent."""
+        logging.basicConfig(level=logging.INFO, 
+                           format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/logs/paper_agent.log')
+        self.logger = logging.getLogger('PaperAgent')
+        
+    def load_results(self, modeling_results=None, exploration_results=None, insight_results=None):
+        """Load analysis results."""
+        if modeling_results:
+            self.modeling_results = modeling_results
+        if exploration_results:
+            self.exploration_results = exploration_results
+        if insight_results:
+            self.insight_results = insight_results
+        return True
+        
+    def create_gatsbi_prompt(self, input_data=None):
+        """Create a Gatsbi-friendly Markdown prompt from analysis results."""
+        # Create the Gatsbi prompt tool
+        gatsbi_tool = GenerateGatsbiPromptTool(
+            modeling_results=self.modeling_results,
+            exploration_results=self.exploration_results,
+            insight_results=self.insight_results
+        )
+        
+        # Generate the prompt using default or provided content
+        if input_data is None:
+            input_data = {
+                'title': "反向TADF分子设计: 颠覆激发态能量排序的计算分析",
+                'abstract': "本研究提出了一种计算框架，用于研究反向热活化延迟荧光（TADF）材料，其中第一单重态激发态（S1）能量低于第一三重态激发态（T1）。通过量子化学计算和机器学习分析，我们确定了控制这种不寻常能量排序的关键分子描述符，并提出了开发新的反向TADF候选物的设计原则。"
+            }
+            
+        # Run the tool
+        result = gatsbi_tool._run(input_data)
+        self.paper_data = result
+        
+        return result
+        
+    def generate_full_paper_with_gpt4(self, api_key=None, prompt_path=None):
+        """Use GPT-4 to generate a full paper from the Gatsbi prompt."""
+        if api_key is None:
+            self.logger.error("需要提供OpenAI API密钥才能使用GPT-4")
+            return None
+            
+        if prompt_path is None and self.paper_data is None:
+            self.logger.error("需要先创建Gatsbi提示或提供提示文件路径")
+            return None
+            
+        prompt_path = prompt_path or self.paper_data.get('path')
+        
+        try:
+            # Initialize the LLM
+            llm = ChatOpenAI(temperature=0.3, model_name="gpt-4", openai_api_key=api_key)
+            
+            # Read the prompt
+            with open(prompt_path, 'r', encoding='utf-8') as f:
+                prompt = f.read()
+                
+            # Add specific instructions for the LLM
+            enhanced_prompt = f"""你是一位专业的学术论文写作助手。我将为你提供一个科学论文的大纲，请将其扩展为完整的学术论文，保持高度专业性和科学严谨性。
+
+你需要：
+1. 保持原有的章节结构和主要观点
+2. 扩展和精细化每个部分，增加科学细节和论证
+3. 确保内容流畅连贯，逻辑严密
+4. 使用适当的学术语言和术语
+5. 遵循科学论文的写作规范
+
+以下是论文大纲：
+
+{prompt}
+
+请基于以上内容，撰写一篇完整的学术论文。"""
+            
+            # Generate the response
+            response = llm.predict(enhanced_prompt)
+            
+            # Save the response
+            output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/paper'
+            os.makedirs(output_dir, exist_ok=True)
+            
+            output_path = os.path.join(output_dir, "full_paper_gpt4.md")
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(response)
+                
+            return {
+                'path': output_path,
+                'content': response
+            }
+            
+        except Exception as e:
+            self.logger.error(f"使用GPT-4生成论文时出错: {e}")
+            return None
+            
+    def run_paper_generation(self, custom_input=None, use_gpt4=False, api_key=None):
+        """Run the complete paper generation pipeline."""
+        # Step 1: Create Gatsbi prompt
+        prompt_result = self.create_gatsbi_prompt(custom_input)
+        
+        if not prompt_result:
+            self.logger.error("创建Gatsbi提示失败")
+            return None
+            
+        # Step 2: Optionally use GPT-4 to expand the paper
+        full_paper = None
+        if use_gpt4 and api_key:
+            full_paper = self.generate_full_paper_with_gpt4(api_key=api_key)
+            
+        return {
+            'prompt': prompt_result,
+            'full_paper': full_paper
+        }

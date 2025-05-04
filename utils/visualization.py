@@ -203,30 +203,57 @@ class VisualizationUtils:
             return None
             
         # 确保两个数据框都有指定特征
+        valid_features = []
         for feature in features:
-            if feature not in negative_df.columns or feature not in positive_df.columns:
-                logging.error(f"数据框中没有 {feature} 列")
-                return None
+            if feature in negative_df.columns and feature in positive_df.columns:
+                valid_features.append(feature)
+            else:
+                logging.warning(f"数据框中缺少特征 {feature}，已跳过")
                 
-        # 计算两组的均值
-        neg_means = [negative_df[f].mean() for f in features]
-        pos_means = [positive_df[f].mean() for f in features]
+        if len(valid_features) < 3:
+            logging.error(f"有效特征不足（只有{len(valid_features)}个），雷达图需要至少3个特征")
+            return None
+                
+        # 计算两组的均值，同时处理NaN和无穷大值
+        neg_means = []
+        pos_means = []
+        for f in valid_features:
+            neg_val = negative_df[f].replace([np.inf, -np.inf], np.nan).mean()
+            pos_val = positive_df[f].replace([np.inf, -np.inf], np.nan).mean()
+            
+            # 如果依然是NaN，使用0代替
+            neg_means.append(0.0 if np.isnan(neg_val) else neg_val)
+            pos_means.append(0.0 if np.isnan(pos_val) else pos_val)
+            
+        # 打印调试信息
+        logging.info(f"负值能隙特征均值: {neg_means}")
+        logging.info(f"正值能隙特征均值: {pos_means}")
         
         # 归一化值到 [0,1] 用于雷达图
-        all_values = np.concatenate([neg_means, pos_means])
-        min_vals = np.min(all_values)
-        max_vals = np.max(all_values)
+        all_values = np.array(neg_means + pos_means)
+        if len(all_values) == 0 or np.all(np.isnan(all_values)):
+            logging.error("无法创建雷达图：所有值都是NaN")
+            return None
+            
+        min_vals = np.nanmin(all_values)
+        max_vals = np.nanmax(all_values)
         
-        # 处理所有值相同的情况
-        if max_vals == min_vals:
+        # 处理极端情况
+        if np.isnan(min_vals) or np.isnan(max_vals) or np.isclose(max_vals, min_vals):
+            logging.warning("所有值近似相等或存在NaN，使用默认归一化值")
             normalized_neg = [0.5 for _ in neg_means]
             normalized_pos = [0.5 for _ in pos_means]
         else:
-            normalized_neg = [(x - min_vals) / (max_vals - min_vals) for x in neg_means]
-            normalized_pos = [(x - min_vals) / (max_vals - min_vals) for x in pos_means]
+            # 确保不会除以零
+            range_vals = max_vals - min_vals
+            if np.isclose(range_vals, 0):
+                range_vals = 1.0
+                
+            normalized_neg = [(x - min_vals) / range_vals for x in neg_means]
+            normalized_pos = [(x - min_vals) / range_vals for x in pos_means]
         
         # 创建雷达图
-        labels = [f.replace('_', ' ').title() for f in features]
+        labels = [f.replace('_', ' ').title() for f in valid_features]
         angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()
         
         # 闭合多边形
@@ -235,24 +262,31 @@ class VisualizationUtils:
         angles.append(angles[0])
         labels.append(labels[0])
         
+        # 创建极坐标图
         fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
         
+        # 绘制负值能隙多边形
         ax.plot(angles, normalized_neg, 'r-', linewidth=2, label='负值能隙')
         ax.fill(angles, normalized_neg, 'r', alpha=0.1)
         
+        # 绘制正值能隙多边形
         ax.plot(angles, normalized_pos, 'b-', linewidth=2, label='正值能隙')
         ax.fill(angles, normalized_pos, 'b', alpha=0.1)
         
+        # 设置刻度和标签
         ax.set_thetagrids(np.degrees(angles[:-1]), labels[:-1])
         ax.set_title('特征比较: 负值 vs 正值 S1-T1 能隙', size=15)
         ax.legend(loc='upper right')
         
         # 保存图像（如果提供了路径）
         if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            plt.savefig(save_path)
-            logging.info(f"雷达图已保存至 {save_path}")
-            
+            try:
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                logging.info(f"雷达图已保存至 {save_path}")
+            except Exception as e:
+                logging.error(f"保存雷达图时出错: {e}")
+        
         return fig
         
     @staticmethod
@@ -307,4 +341,209 @@ class VisualizationUtils:
             plt.savefig(save_path)
             logging.info(f"相关性热图已保存至 {save_path}")
             
+        return plt.gcf()
+    
+    # 添加到visualization.py
+    @staticmethod
+    def create_structure_feature_radar(negative_df, positive_df, save_path=None):
+        """创建结构特征的雷达图比较"""
+        # 设置绘图样式
+        VisualizationUtils.set_plot_style()
+        
+        # 选择要在雷达图中显示的结构特征
+        features = [
+            'max_conjugation_length', 'twist_ratio', 
+            'max_h_bond_strength', 'planarity',
+            'aromatic_rings_count'
+        ]
+        
+        # 检查两个数据框是否都有这些特征
+        valid_features = [f for f in features 
+                        if f in negative_df.columns and f in positive_df.columns]
+        
+        if len(valid_features) < 3:  # 需要至少3个特征
+            print("警告：没有足够的结构特征进行雷达图比较")
+            return None
+        
+        # 计算平均值
+        neg_means = [negative_df[f].mean() for f in valid_features]
+        pos_means = [positive_df[f].mean() for f in valid_features]
+        
+        # 归一化至[0,1]范围
+        all_values = neg_means + pos_means
+        min_val = min(all_values)
+        max_val = max(all_values)
+        range_val = max_val - min_val if max_val != min_val else 1
+        
+        normalized_neg = [(v - min_val) / range_val for v in neg_means]
+        normalized_pos = [(v - min_val) / range_val for v in pos_means]
+        
+        # 友好名称映射
+        feature_names = {
+            'max_conjugation_length': 'π共轭长度',
+            'twist_ratio': '扭曲程度', 
+            'max_h_bond_strength': '氢键强度',
+            'planarity': '平面性',
+            'aromatic_rings_count': '芳香环数',
+            'conjugation_path_count': '共轭路径数',
+            'dihedral_angles_count': '关键二面角数',
+            'hydrogen_bonds_count': '氢键数'
+        }
+        
+        # 创建标签
+        labels = [feature_names.get(f, f.replace('_', ' ').title()) for f in valid_features]
+        
+        # 准备雷达图
+        angles = np.linspace(0, 2*np.pi, len(valid_features), endpoint=False).tolist()
+        
+        # 闭合图形
+        normalized_neg.append(normalized_neg[0])
+        normalized_pos.append(normalized_pos[0])
+        angles.append(angles[0])
+        labels.append(labels[0])
+        
+        # 创建图表
+        fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'polar': True})
+        
+        ax.plot(angles, normalized_neg, 'r-', linewidth=2, label='负值S1-T1能隙')
+        ax.fill(angles, normalized_neg, 'r', alpha=0.1)
+        
+        ax.plot(angles, normalized_pos, 'b-', linewidth=2, label='正值S1-T1能隙')
+        ax.fill(angles, normalized_pos, 'b', alpha=0.1)
+        
+        ax.set_thetagrids(np.degrees(angles[:-1]), labels[:-1])
+        ax.set_title('结构特征比较: 负值 vs 正值 S1-T1能隙')
+        ax.legend(loc='upper right')
+        
+        if save_path:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path)
+            print(f"结构特征雷达图已保存至: {save_path}")
+        
+        return fig
+
+    @staticmethod
+    def create_dihedral_vs_s1t1_plot(df, save_path=None):
+        """创建二面角与S1-T1能隙关系图"""
+        if 'max_dihedral_angle' not in df.columns or 's1_t1_gap_ev' not in df.columns:
+            return None
+        
+        plt.figure(figsize=(10, 6))
+        
+        # 散点图
+        plt.scatter(
+            df['max_dihedral_angle'], 
+            df['s1_t1_gap_ev'],
+            alpha=0.7, c=df['s1_t1_gap_ev'], cmap='coolwarm'
+        )
+        
+        # 添加趋势线
+        x = df['max_dihedral_angle'].values.reshape(-1, 1)
+        y = df['s1_t1_gap_ev'].values
+        
+        try:
+            from sklearn.linear_model import LinearRegression
+            model = LinearRegression()
+            model.fit(x, y)
+            
+            x_pred = np.linspace(min(x), max(x), 100).reshape(-1, 1)
+            y_pred = model.predict(x_pred)
+            
+            plt.plot(x_pred, y_pred, 'k--', linewidth=1)
+        except:
+            # 如果无法计算趋势线则跳过
+            pass
+        
+        # 添加零线
+        plt.axhline(y=0, color='r', linestyle='--', alpha=0.5)
+        
+        # 添加40°参考线
+        plt.axvline(x=40, color='g', linestyle='--', alpha=0.5)
+        
+        plt.xlabel('最大二面角 (度)')
+        plt.ylabel('S1-T1 能隙 (eV)')
+        plt.title('二面角扭曲与S1-T1能隙关系')
+        
+        if save_path:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path)
+            print(f"二面角关系图已保存至: {save_path}")
+        
+        return plt.gcf()
+
+    @staticmethod
+    def create_conjugation_vs_s1t1_plot(df, save_path=None):
+        """创建共轭长度与S1-T1能隙关系图"""
+        if 'max_conjugation_length' not in df.columns or 's1_t1_gap_ev' not in df.columns:
+            return None
+        
+        plt.figure(figsize=(10, 6))
+        
+        # 根据最大共轭长度分组
+        grouped = df.groupby('max_conjugation_length')['s1_t1_gap_ev'].agg(['mean', 'std', 'count'])
+        grouped = grouped[grouped['count'] >= 2]  # 至少2个样本
+        
+        x = grouped.index
+        y = grouped['mean']
+        yerr = grouped['std']
+        
+        # 绘制条形图
+        plt.bar(x, y, yerr=yerr, alpha=0.7, color='skyblue')
+        
+        # 添加零线
+        plt.axhline(y=0, color='r', linestyle='--', alpha=0.5)
+        
+        plt.xlabel('最大π共轭路径长度')
+        plt.ylabel('平均S1-T1能隙 (eV)')
+        plt.title('共轭长度与S1-T1能隙关系')
+        
+        if save_path:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path)
+            print(f"共轭长度关系图已保存至: {save_path}")
+        
+        return plt.gcf()
+
+    @staticmethod
+    def create_hydrogen_bonds_effect_plot(df, save_path=None):
+        """创建氢键对S1-T1能隙的影响图"""
+        if 'hydrogen_bonds_count' not in df.columns or 's1_t1_gap_ev' not in df.columns:
+            return None
+        
+        plt.figure(figsize=(10, 6))
+        
+        # 基于氢键数分类
+        df['h_bond_category'] = df['hydrogen_bonds_count'].apply(
+            lambda x: '无氢键' if x == 0 else ('1-2个氢键' if x <= 2 else '多个氢键')
+        )
+        
+        # 分组并计算平均值
+        grouped = df.groupby('h_bond_category')['s1_t1_gap_ev'].agg(['mean', 'std', 'count']).reset_index()
+        
+        # 确保顺序
+        order = ['无氢键', '1-2个氢键', '多个氢键']
+        grouped['order'] = grouped['h_bond_category'].map({cat: i for i, cat in enumerate(order)})
+        grouped = grouped.sort_values('order')
+        
+        # 绘图
+        plt.bar(
+            grouped['h_bond_category'], 
+            grouped['mean'],
+            yerr=grouped['std'],
+            alpha=0.7,
+            color=['#ff9999', '#66b3ff', '#99ff99']
+        )
+        
+        # 添加零线
+        plt.axhline(y=0, color='r', linestyle='--', alpha=0.5)
+        
+        plt.xlabel('氢键数量')
+        plt.ylabel('平均S1-T1能隙 (eV)')
+        plt.title('氢键与S1-T1能隙关系')
+        
+        if save_path:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path)
+            print(f"氢键影响图已保存至: {save_path}")
+        
         return plt.gcf()

@@ -1,0 +1,520 @@
+# utils/gatsbi_tools.py
+from langchain.tools import BaseTool
+from jinja2 import Template
+import os
+import json
+import pandas as pd
+import numpy as np
+from datetime import datetime
+import logging
+from typing import Dict, Any, Optional, List, ClassVar, Type, Union  # 添加类型导入
+
+
+class GenerateGatsbiPromptTool(BaseTool):
+    """
+    从反向TADF分析结果自动生成适用于Gatsbi的Markdown格式提示工具
+    """
+    # 为属性添加类型注解
+    name: ClassVar[str] = "generate_gatsbi_prompt"
+    description: ClassVar[str] = "根据实验分析结果自动生成Gatsbi写作所需的Markdown格式Prompt文件"
+    
+    def __init__(self, 
+                 template_path=None, 
+                 output_dir="data/gatsbi_prompts", 
+                 modeling_results=None, 
+                 exploration_results=None, 
+                 insight_results=None):
+        """初始化工具类"""
+        super().__init__()
+        
+        # 设置模板路径
+        if template_path is None:
+            # 使用默认模板
+            self.template_content = """
+# {{title}}
+
+## Abstract
+
+{{abstract}}
+
+## Introduction
+
+{{introduction}}
+
+## Methods
+
+{{methods}}
+
+## Results
+
+{{results}}
+
+## Discussion
+
+{{discussion}}
+
+## Conclusion
+
+{{conclusion}}
+
+## References
+
+{{references}}
+"""
+            self.template = Template(self.template_content)
+        else:
+            self.template_path = template_path
+            self.template = self._load_template()
+        
+        # 设置输出目录
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        # 存储分析结果
+        self.modeling_results = modeling_results
+        self.exploration_results = exploration_results
+        self.insight_results = insight_results
+        
+        # 设置日志
+        self.logger = logging.getLogger('GatsbiPromptTool')
+        
+    def _load_template(self):
+        """加载Jinja2模板"""
+        try:
+            with open(self.template_path, "r", encoding="utf-8") as f:
+                return Template(f.read())
+        except Exception as e:
+            self.logger.error(f"加载模板失败: {e}")
+            # 使用默认模板作为备选
+            default_template = """
+# {{title}}
+
+## Abstract
+
+{{abstract}}
+
+## Introduction
+
+{{introduction}}
+
+## Methods
+
+{{methods}}
+
+## Results
+
+{{results}}
+
+## Discussion
+
+{{discussion}}
+
+## Conclusion
+
+{{conclusion}}
+
+## References
+
+{{references}}
+"""
+            return Template(default_template)
+    
+    def _extract_modeling_insights(self):
+        """从建模结果中提取关键信息"""
+        if not self.modeling_results:
+            return {}
+            
+        insights = {}
+        
+        # 提取分类模型信息
+        if 'classification' in self.modeling_results:
+            classification = self.modeling_results['classification']
+            insights['classification_accuracy'] = classification.get('accuracy', 'N/A')
+            
+            # 提取特征重要性
+            if 'importance' in classification:
+                top_features = classification['importance'].head(5)['Feature'].tolist()
+                insights['top_classification_features'] = top_features
+                
+        # 提取回归模型信息
+        if 'regression' in self.modeling_results:
+            regression = self.modeling_results['regression']
+            insights['regression_r2'] = regression.get('r2', 'N/A')
+            insights['regression_rmse'] = regression.get('rmse', 'N/A')
+            
+            # 提取特征重要性
+            if 'importance' in regression:
+                top_features = regression['importance'].head(5)['Feature'].tolist()
+                insights['top_regression_features'] = top_features
+                
+        return insights
+    
+    def _extract_exploration_insights(self):
+        """从探索分析中提取关键信息"""
+        if not self.exploration_results:
+            return {}
+            
+        insights = {}
+        
+        # 提取负能隙分子数量
+        if 'analysis_results' in self.exploration_results:
+            analysis = self.exploration_results['analysis_results']
+            
+            # 负能隙分子列表
+            if 'neg_molecules' in analysis:
+                insights['neg_molecule_count'] = len(analysis['neg_molecules'])
+                insights['neg_molecules'] = analysis['neg_molecules']
+                
+            # 关键差异特征
+            if 'top_diff_features' in analysis:
+                insights['top_diff_features'] = analysis['top_diff_features']
+                
+        return insights
+    
+    def _extract_report_insights(self):
+        """从洞察报告中提取关键信息"""
+        if not self.insight_results:
+            return {}
+            
+        insights = {}
+        
+        # 提取报告路径
+        if 'report' in self.insight_results:
+            report_path = self.insight_results['report']
+            
+            try:
+                # 读取报告内容
+                with open(report_path, 'r', encoding='utf-8') as f:
+                    report_content = f.read()
+                    
+                # 提取设计原则
+                import re
+                design_principles = re.search(r'## Molecular Design Principles.+?(?=##|$)', report_content, re.DOTALL)
+                if design_principles:
+                    insights['design_principles'] = design_principles.group(0)
+                    
+                # 提取量子化学解释
+                quantum_insights = re.search(r'## Quantum Chemistry Insights.+?(?=##|$)', report_content, re.DOTALL)
+                if quantum_insights:
+                    insights['quantum_insights'] = quantum_insights.group(0)
+                    
+            except Exception as e:
+                self.logger.error(f"读取报告失败: {e}")
+                
+        return insights
+    
+    def _generate_introduction(self, custom_intro=None):
+        """生成论文引言"""
+        if custom_intro:
+            return custom_intro
+            
+        # 生成默认引言
+        introduction = """
+反向热活化延迟荧光(Reverse TADF)材料是一类具有特殊光物理性质的有机发光材料，在其中第一单重态激发态（S1）能量低于第一三重态激发态（T1）。这种能量排序与通常按照洪特规则预期的排序相反，常规材料中T1能量低于S1。这种独特的能量排序可能带来新颖的光物理过程，在有机光电子器件中具有潜在应用价值。
+
+尽管已有少量关于反向TADF材料的研究报道，但对这种特殊现象的基础理解和系统研究仍然有限。造成这种反常能量排序的因素尚未被完全阐明，这阻碍了针对性设计具有这种特性的新材料。因此，开发一种计算方法来预测和理解反向TADF现象具有重要意义。
+
+本研究采用量子化学计算与机器学习方法相结合的策略，对反向TADF材料进行系统性研究。通过对大量分子的激发态性质进行模拟，我们识别出具有负S1-T1能隙的候选分子，并通过比较分析和特征工程方法，揭示了影响这种不寻常能量排序的关键分子描述符。
+
+本研究的目标包括：
+1. 建立反向TADF分子识别的计算框架
+2. 分析影响S1-T1能隙方向的关键结构和电子特征
+3. 构建S1-T1能隙预测模型
+4. 提出反向TADF材料的合理设计原则
+
+这些研究成果将为开发新型反向TADF材料提供理论指导，促进先进光电子器件的发展。
+"""
+        return introduction
+    
+    def _generate_methods(self, custom_methods=None):
+        """生成方法部分"""
+        if custom_methods:
+            return custom_methods
+            
+        # 生成默认方法部分
+        methods = """
+## 计算化学方法
+
+所有分子结构优化均使用Gaussian 16软件包中实现的密度泛函理论(DFT)方法完成。采用B3LYP泛函结合6-31G(d)基组进行基态(S0)、第一激发单重态(S1)和第一激发三重态(T1)的几何优化。通过频率计算确认优化后的结构是势能面上的真正极小值。
+
+激发态性质计算采用时间依赖密度泛函理论(TD-DFT)，使用相同的计算水平。对每个分子，我们计算了：
+
+- S0→S1垂直激发能
+- S0→T1垂直激发能
+- 振子强度
+- S1和T1优化几何结构
+- 绝热能量差
+
+使用CREST程序进行构象分析，以识别每个分子的低能构象。这确保我们的分析能够捕捉这些体系的结构灵活性。
+
+## 特征工程
+
+从量子化学计算中，我们提取了以下性质：
+
+1. **电子性质**：HOMO、LUMO、HOMO-LUMO能隙、偶极矩
+2. **结构特征**：分子大小、平面性、共轭程度
+3. **激发态性质**：S1能量、T1能量、S1-T1能隙、振子强度
+
+此外，我们还开发了基于分子结构的替代3D描述符，捕捉：
+
+- 芳香体系的共轭程度估计
+- 给电子/吸电子效应
+- 分子极性和极化率
+- 构象灵活性
+
+## 机器学习模型
+
+我们开发了两种预测模型：
+
+1. **分类模型**：预测分子是否表现出反向TADF（负S1-T1能隙）
+2. **回归模型**：预测S1-T1能隙的大小
+
+两种模型均采用随机森林算法实现，并通过特征重要性分析识别控制S1-T1能量排序的关键分子描述符。使用交叉验证评估模型性能并防止过拟合。
+
+## 数据分析流程
+
+我们的计算工作流程包括五个关键阶段：
+
+1. **数据提取**：自动解析Gaussian和CREST输出文件
+2. **特征工程**：生成分子描述符和性质计算
+3. **探索分析**：对正负S1-T1能隙分子进行统计比较
+4. **预测建模**：训练和验证分类和回归模型
+5. **洞察生成**：推导分子设计原则
+"""
+        return methods
+    
+    def _generate_results(self, modeling_insights, exploration_insights):
+        """生成结果部分"""
+        # 提取关键指标
+        neg_molecule_count = exploration_insights.get('neg_molecule_count', 'several')
+        classification_accuracy = modeling_insights.get('classification_accuracy', 'N/A')
+        if isinstance(classification_accuracy, (int, float)):
+            classification_accuracy = f"{classification_accuracy:.2f}"
+            
+        regression_r2 = modeling_insights.get('regression_r2', 'N/A')
+        if isinstance(regression_r2, (int, float)):
+            regression_r2 = f"{regression_r2:.2f}"
+            
+        # 提取关键特征
+        top_features = modeling_insights.get('top_classification_features', [])
+        if not top_features:
+            top_features = modeling_insights.get('top_regression_features', [])
+            
+        # 提取差异特征
+        diff_features = exploration_insights.get('top_diff_features', [])
+        
+        # 生成结果文本
+        results = f"""
+## 反向TADF候选物的识别
+
+我们的计算筛选识别出{neg_molecule_count}个具有负S1-T1能隙的分子，这些分子是潜在的反向TADF候选物。通过分析S1-T1能隙分布，我们发现这种反常能量排序现象在分子集中相对罕见，突显了这类材料的独特性。
+
+主成分分析(PCA)显示，具有正值和负值S1-T1能隙的分子在特征空间中形成明显的聚类模式，表明它们在结构和电子性质上存在系统性差异。这一发现支持了基于分子特征预测S1-T1能隙符号的可行性。
+
+## 关键分子描述符
+
+分类模型在预测分子是否表现出负S1-T1能隙方面达到了{classification_accuracy}的准确率。预测S1-T1能隙具体数值的回归模型获得了{regression_r2}的R²分数，表明模型具有良好的预测能力。
+
+特征重要性分析揭示了几个对S1-T1能量排序有显著影响的关键分子描述符：
+"""
+
+        # 添加关键特征描述
+        if top_features:
+            results += "\n1. **电子效应**: "
+            for feature in top_features:
+                if any(term in feature.lower() for term in ['electron', 'homo', 'lumo', 'donat', 'withdraw']):
+                    results += f"{feature.replace('_', ' ')}、"
+                    
+            results = results.rstrip("、") + "等电子特性显著影响前沿轨道能级。\n"
+            
+            results += "\n2. **共轭模式**: "
+            for feature in top_features:
+                if any(term in feature.lower() for term in ['conjug', 'planar', 'aromatic']):
+                    results += f"{feature.replace('_', ' ')}、"
+                    
+            results = results.rstrip("、") + "等共轭特性影响单重态和三重态之间的交换能。\n"
+            
+            results += "\n3. **分子几何**: "
+            for feature in top_features:
+                if any(term in feature.lower() for term in ['size', 'planar', 'ring', 'geometry']):
+                    results += f"{feature.replace('_', ' ')}、"
+                    
+            results = results.rstrip("、") + "等几何特性通过前沿轨道的空间分离促进了不寻常的能量排序。\n"
+
+        # 添加量子机理描述
+        results += """
+## 量子机理解释
+
+反向TADF材料中S1和T1态的不寻常排序可以通过几个量子力学原理解释：
+
+1. **降低交换能**: HOMO和LUMO轨道的空间分离最小化了交换积分，这通常有利于三重态。
+
+2. **电荷转移特性**: 具有显著电荷转移特性的激发态对单重态和三重态构型经历不同的稳定化效应。
+
+3. **构型相互作用**: 多个电子构型对最终激发态能量有贡献，可能导致典型的能量排序倒置。
+
+## 结构-性质关系
+
+正负S1-T1能隙分子之间的比较分析揭示了显著的结构差异。具有负能隙的分子往往具有：
+"""
+
+        # 添加差异特征描述
+        if diff_features:
+            results += "\n1. 特定官能团 ("
+            for feature in diff_features:
+                if 'has_' in feature:
+                    group = feature.replace('has_', '')
+                    results += f"{group.upper()}、"
+            results = results.rstrip("、") + ")，这些基团产生强烈的电子效应\n"
+            
+            results += "\n2. 特定环系统，创造独特的几何约束\n"
+            
+            results += "\n3. 杂原子的战略性放置，影响轨道能量\n"
+            
+            results += "\n这些结构元素创造了不寻常的S1-T1能量排序所需的电子条件。"
+            
+        return results
+    
+    def _generate_discussion(self, report_insights):
+        """生成讨论部分"""
+        discussion = """
+## 反向TADF的分子设计策略
+
+基于我们的计算分析，我们提出以下开发反向TADF材料的设计策略：
+"""
+
+        # 从报告中提取设计原则（如果有）
+        if 'design_principles' in report_insights:
+            design_principles = report_insights['design_principles']
+            # 清理Markdown格式
+            design_principles = design_principles.replace("## Molecular Design Principles", "")
+            discussion += design_principles
+        else:
+            # 生成默认设计原则
+            discussion += """
+1. **平衡电子效应**: 在特定位置结合强电子吸引基团（如-CN、-NO2、-CF3）和电子给予基团（如-NH2、-OH），创造所需的前沿轨道分布。
+
+2. **优化共轭模式**: 控制π共轭程度和分子平面性，调节激发态之间的轨道重叠和交换相互作用。
+
+3. **设计电荷分离**: 设计在激发态具有明显电荷转移特性的分子，选择性地稳定单重态而非三重态。
+
+4. **引入构象约束**: 利用特定环系统和取代基，创造有利于降低单重态和三重态之间交换能的几何排列。
+
+5. **考虑杂原子效应**: 氮、氧或硫原子的战略性放置可以微调轨道能量，影响S1-T1能隙。
+
+6. **降低交换相互作用**: 设计能够最小化HOMO和LUMO轨道空间重叠的分子结构，减少通常使三重态稳定在单重态以下的交换能。
+
+这些设计原则为专业化光电子应用的新型反向TADF材料的理性开发提供了路线图。
+"""
+
+        # 添加量子化学解释
+        discussion += """
+## 量子化学机理探讨
+
+反向TADF现象的实现涉及多个量子力学效应的精妙平衡。传统上，根据洪特规则，三重态的电子自旋平行排布导致交换能降低，使T1能量低于S1。然而，在反向TADF材料中，几个因素可能颠覆这一常规排序：
+
+1. **前沿轨道空间分离**: 当HOMO和LUMO轨道在空间上充分分离时，它们之间的交换积分减小，可能导致S1和T1能级接近，甚至倒置。
+
+2. **电子构型混合**: 单重态可以通过构型相互作用从高能单激发态借用稳定化能，而三重态则不能。这可能导致S1降至T1以下。
+
+3. **电荷转移与环境相互作用**: 单重态激发态通常具有比三重态更强的电荷转移特性，使其在极性环境中获得额外稳定化，进一步促进反向能量排序。
+
+4. **振动耦合效应**: 某些分子振动模式可能与单重态更强地耦合，选择性地降低其能量。
+
+这些量子效应的相互作用强调了多学科方法的必要性，结合量子化学计算、机器学习分析和实验验证，以全面理解和利用反向TADF现象。
+"""
+
+        return discussion
+    
+    def _generate_conclusion(self):
+        """生成结论部分"""
+        conclusion = """
+本研究对反向TADF材料进行了全面的计算分析，这类材料中第一单重态激发态（S1）能量低于第一三重态激发态（T1）。通过量子化学计算和机器学习分析，我们识别了控制这种不寻常能量排序的关键分子描述符，并提出了开发新的反向TADF候选物的设计原则。
+
+我们的研究发现，反向S1-T1能量排序源于电子、结构和量子力学因素的复杂相互作用。通过精心调节这些分子特征，可以设计出表现出这种罕见现象的材料，为先进光电子器件的应用开辟了新途径。
+
+本研究提出的预测模型和设计策略为下一代反向TADF材料的理性开发提供了有价值的工具。未来工作将集中在计算预测的实验验证，以及探索利用这些材料独特光物理性质的器件应用。
+"""
+        return conclusion
+    
+    def _generate_references(self):
+        """生成参考文献部分"""
+        references = """
+1. Wong, M. Y.; Zysman-Colman, E. Purely Organic Thermally Activated Delayed Fluorescence Materials for Organic Light-Emitting Diodes. *Adv. Mater.* **2017**, *29*, 1605444.
+
+2. Etherington, M. K.; Gibson, J.; Higginbotham, H. F.; Penfold, T. J.; Monkman, A. P. Revealing the Spin-Vibronic Coupling Mechanism of Thermally Activated Delayed Fluorescence. *Nat. Commun.* **2016**, *7*, 13680.
+
+3. Penfold, T. J.; Dias, F. B.; Monkman, A. P. The Theory of Thermally Activated Delayed Fluorescence for Organic Light Emitting Diodes. *Chem. Commun.* **2018**, *54*, 3926-3935.
+
+4. Chen, X.-K.; Kim, D.; Brédas, J.-L. Thermally Activated Delayed Fluorescence (TADF) Path toward Efficient Electroluminescence in Purely Organic Materials: Molecular Level Insight. *Acc. Chem. Res.* **2018**, *51*, 2215-2224.
+
+5. Samanta, P. K.; Kim, D.; Coropceanu, V.; Brédas, J.-L. Up-Conversion Intersystem Crossing Rates in Organic Emitters for Thermally Activated Delayed Fluorescence: Impact of the Nature of Singlet vs Triplet Excited States. *J. Am. Chem. Soc.* **2017**, *139*, 4042-4051.
+
+6. Olivier, Y.; Moral, M.; Muccioli, L.; Sancho-García, J.-C. Dynamic Nature of Excited States of Donor–Acceptor TADF Materials for OLEDs: How Theory Can Reveal Structure–Property Relationships. *J. Mater. Chem. C* **2017**, *5*, 5718-5729.
+
+7. Körzdörfer, T.; Brédas, J.-L. Organic Electronic Materials: Recent Advances in the DFT Description of the Ground and Excited States Using Tuned Range-Separated Hybrid Functionals. *Acc. Chem. Res.* **2014**, *47*, 3284-3291.
+
+8. Gómez-Bombarelli, R.; Aguilera-Iparraguirre, J.; Hirzel, T. D.; Duvenaud, D.; Maclaurin, D.; Blood-Forsythe, M. A.; Chae, H. S.; Einzinger, M.; Ha, D.-G.; Wu, T.; Markopoulos, G.; Jeon, S.; Kang, H.; Miyazaki, H.; Numata, M.; Kim, S.; Huang, W.; Hong, S. I.; Baldo, M.; Adams, R. P.; Aspuru-Guzik, A. Design of Efficient Molecular Organic Light-Emitting Diodes by a High-Throughput Virtual Screening and Experimental Approach. *Nat. Mater.* **2016**, *15*, 1120-1127.
+"""
+        return references
+    
+    def _save_output(self, content, title):
+        """保存输出内容到文件"""
+        # 生成文件名
+        filename = f"{title.replace(' ', '_')}.md"
+        path = os.path.join(self.output_dir, filename)
+        
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            return path
+        except Exception as e:
+            self.logger.error(f"保存输出文件时出错: {e}")
+            return None
+    
+    def _run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """执行工具功能"""
+        # 提取分析结果的关键信息
+        modeling_insights = self._extract_modeling_insights()
+        exploration_insights = self._extract_exploration_insights()
+        report_insights = self._extract_report_insights()
+        
+        # 合并用户提供的内容和自动生成的内容
+        title = input_data.get('title', '反向TADF分子设计: 研究与策略')
+        abstract = input_data.get('abstract', '本研究提出了一种计算框架，用于研究反向热活化延迟荧光（TADF）材料，其中第一单重态激发态（S1）能量低于第一三重态激发态（T1）。通过量子化学计算和机器学习分析，我们确定了控制这种不寻常能量排序的关键分子描述符，并提出了开发新的反向TADF候选物的设计原则。')
+        
+        introduction = input_data.get('introduction', self._generate_introduction())
+        methods = input_data.get('methods', self._generate_methods())
+        results = input_data.get('results', self._generate_results(modeling_insights, exploration_insights))
+        discussion = input_data.get('discussion', self._generate_discussion(report_insights))
+        conclusion = input_data.get('conclusion', self._generate_conclusion())
+        references = input_data.get('references', self._generate_references())
+        
+        # 使用模板渲染内容
+        rendered_content = self.template.render(
+            title=title,
+            abstract=abstract,
+            introduction=introduction,
+            methods=methods,
+            results=results,
+            discussion=discussion,
+            conclusion=conclusion,
+            references=references
+        )
+        
+        # 保存到文件
+        output_path = self._save_output(rendered_content, title)
+        
+        return {
+            'path': output_path,
+            'title': title,
+            'content': rendered_content,
+            'sections': {
+                'introduction': introduction,
+                'methods': methods,
+                'results': results,
+                'discussion': discussion,
+                'conclusion': conclusion,
+                'references': references
+            }
+        }

@@ -226,7 +226,40 @@ class ExplorationAgent:
                 print(f"Error generating structural feature comparison: {e}")
                 structure_file = None
                 top_features = []
+         # 添加结构特征分析
+        from utils.visualization import VisualizationUtils
         
+        # 创建结构特征雷达图
+        radar_structure_file = os.path.join(results_dir, 'structure_features_radar.png')
+        VisualizationUtils.create_structure_feature_radar(
+            self.neg_data, self.pos_data, radar_structure_file
+        )
+        
+        # 创建二面角与S1-T1能隙关系图
+        dihedral_file = os.path.join(results_dir, 'dihedral_vs_s1t1.png')
+        VisualizationUtils.create_dihedral_vs_s1t1_plot(
+            pd.concat([self.neg_data, self.pos_data]), dihedral_file
+        )
+        
+        # 创建共轭长度与S1-T1能隙关系图
+        conjugation_file = os.path.join(results_dir, 'conjugation_vs_s1t1.png')
+        VisualizationUtils.create_conjugation_vs_s1t1_plot(
+            pd.concat([self.neg_data, self.pos_data]), conjugation_file
+        )
+        
+        # 创建氢键影响图
+        hbond_file = os.path.join(results_dir, 'hydrogen_bonds_effect.png')
+        VisualizationUtils.create_hydrogen_bonds_effect_plot(
+            pd.concat([self.neg_data, self.pos_data]), hbond_file
+        )
+        
+        # 更新结果字典，添加新的图表文件
+        self.results.update({
+            'structure_radar': radar_structure_file,
+            'dihedral_plot': dihedral_file,
+            'conjugation_plot': conjugation_file,
+            'hbond_plot': hbond_file
+        })
         # 3. 分析定量特征
         # 选择相关的定量特征
         quant_features = [
@@ -393,53 +426,103 @@ class ExplorationAgent:
                 'homo_lumo_gap', 'dipole'
             ]
             
-            valid_radar = [f for f in radar_features if f in self.neg_data.columns and f in self.pos_data.columns]
+            # 过滤有效特征并打印调试信息
+            valid_radar = []
+            print("检查雷达图特征可用性:")
+            for feature in radar_features:
+                in_neg = feature in self.neg_data.columns
+                in_pos = feature in self.pos_data.columns
+                print(f"  - {feature}: 负值数据中{'' if in_neg else '不'}存在, 正值数据中{'' if in_pos else '不'}存在")
+                
+                if in_neg and in_pos:
+                    # 检查是否有非NaN值
+                    neg_valid = self.neg_data[feature].notna().sum() > 0
+                    pos_valid = self.pos_data[feature].notna().sum() > 0
+                    print(f"    有效值: 负值数据中{self.neg_data[feature].notna().sum()}个, 正值数据中{self.pos_data[feature].notna().sum()}个")
+                    
+                    if neg_valid and pos_valid:
+                        valid_radar.append(feature)
+            
+            print(f"有效雷达图特征: {valid_radar}")
             
             if len(valid_radar) >= 3:  # 需要至少3个特征才能画有意义的雷达图
-                # 计算每组的均值
-                neg_means = [self.neg_data[f].mean() for f in valid_radar]
-                pos_means = [self.pos_data[f].mean() for f in valid_radar]
+                # 计算每组的均值，同时处理NaN和无穷大值
+                neg_means = []
+                pos_means = []
+                print("特征均值:")
+                for f in valid_radar:
+                    neg_val = self.neg_data[f].replace([np.inf, -np.inf], np.nan).mean()
+                    pos_val = self.pos_data[f].replace([np.inf, -np.inf], np.nan).mean()
+                    print(f"  - {f}: 负值={neg_val}, 正值={pos_val}")
+                    
+                    # 如果依然是NaN，使用0代替
+                    neg_means.append(0.0 if np.isnan(neg_val) else neg_val)
+                    pos_means.append(0.0 if np.isnan(pos_val) else pos_val)
                 
-                # 将值归一化到[0,1]范围以便于雷达图
-                all_values = np.concatenate([neg_means, pos_means])
-                min_vals = np.min(all_values)
-                max_vals = np.max(all_values)
-                
-                # 处理所有值相同的情况
-                if max_vals == min_vals:
-                    normalized_neg = [0.5 for _ in neg_means]
-                    normalized_pos = [0.5 for _ in pos_means]
+                # 归一化值到[0,1]范围以便于雷达图
+                all_values = np.array(neg_means + pos_means)
+                if len(all_values) == 0 or np.all(np.isnan(all_values)):
+                    print("警告: 所有值都是NaN，无法创建雷达图")
                 else:
-                    normalized_neg = [(x - min_vals) / (max_vals - min_vals) for x in neg_means]
-                    normalized_pos = [(x - min_vals) / (max_vals - min_vals) for x in pos_means]
-                
-                # 创建雷达图
-                labels = [f.replace('_', ' ').title() for f in valid_radar]
-                angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()
-                
-                # 闭合多边形
-                normalized_neg.append(normalized_neg[0])
-                normalized_pos.append(normalized_pos[0])
-                angles.append(angles[0])
-                labels.append(labels[0])
-                
-                fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
-                
-                ax.plot(angles, normalized_neg, 'r-', linewidth=2, label='Negative Gap')
-                ax.fill(angles, normalized_neg, 'r', alpha=0.1)
-                
-                ax.plot(angles, normalized_pos, 'b-', linewidth=2, label='Positive Gap')
-                ax.fill(angles, normalized_pos, 'b', alpha=0.1)
-                
-                ax.set_thetagrids(np.degrees(angles[:-1]), labels[:-1])
-                ax.set_title('Feature Comparison: Negative vs Positive S1-T1 Gap', size=15)
-                ax.legend(loc='upper right')
-                
-                radar_file = os.path.join(results_dir, 'radar_feature_comparison.png')
-                plt.savefig(radar_file)
-                plt.close()
+                    min_vals = np.nanmin(all_values)
+                    max_vals = np.nanmax(all_values)
+                    print(f"归一化范围: min={min_vals}, max={max_vals}")
+                    
+                    # 处理所有值相同的情况
+                    if np.isnan(min_vals) or np.isnan(max_vals) or np.isclose(max_vals, min_vals):
+                        print("警告: 所有值近似相等或存在NaN，使用默认归一化值")
+                        normalized_neg = [0.5 for _ in neg_means]
+                        normalized_pos = [0.5 for _ in pos_means]
+                    else:
+                        # 确保不会除以零
+                        range_vals = max_vals - min_vals
+                        if np.isclose(range_vals, 0):
+                            range_vals = 1.0
+                            
+                        normalized_neg = [(x - min_vals) / range_vals for x in neg_means]
+                        normalized_pos = [(x - min_vals) / range_vals for x in pos_means]
+                    
+                    print("归一化后的值:")
+                    print(f"  - 负值: {normalized_neg}")
+                    print(f"  - 正值: {normalized_pos}")
+                    
+                    # 创建雷达图
+                    labels = [f.replace('_', ' ').title() for f in valid_radar]
+                    angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()
+                    
+                    # 闭合多边形
+                    normalized_neg.append(normalized_neg[0])
+                    normalized_pos.append(normalized_pos[0])
+                    angles.append(angles[0])
+                    labels.append(labels[0])
+                    
+                    # 创建极坐标图
+                    fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
+                    
+                    # 绘制负值能隙多边形
+                    ax.plot(angles, normalized_neg, 'r-', linewidth=2, label='Negative Gap')
+                    ax.fill(angles, normalized_neg, 'r', alpha=0.1)
+                    
+                    # 绘制正值能隙多边形
+                    ax.plot(angles, normalized_pos, 'b-', linewidth=2, label='Positive Gap')
+                    ax.fill(angles, normalized_pos, 'b', alpha=0.1)
+                    
+                    # 设置刻度和标签
+                    ax.set_thetagrids(np.degrees(angles[:-1]), labels[:-1])
+                    ax.set_title('Feature Comparison: Negative vs Positive S1-T1 Gap', size=15)
+                    ax.legend(loc='upper right')
+                    
+                    # 保存图像
+                    radar_file = os.path.join(results_dir, 'radar_feature_comparison.png')
+                    plt.savefig(radar_file, dpi=300, bbox_inches='tight')
+                    print(f"雷达图已保存至: {radar_file}")
+                    plt.close()
+            else:
+                print(f"警告: 没有足够的有效特征用于雷达图（至少需要3个，但只找到{len(valid_radar)}个）")
         except Exception as e:
-            print(f"Error generating radar plot: {e}")
+            print(f"创建雷达图时出错: {e}")
+            import traceback
+            traceback.print_exc()
         
         # 存储结果用于报告
         self.results = {

@@ -113,34 +113,34 @@ class FeatureUtils:
         return polarity_score
     
     @staticmethod
-    def estimate_hydrophobicity(molecule_name):
-        """估计分子疏水性/亲水性基于名称中的取代基"""
+    def estimate_molecular_polarity(molecule_name):
+        """估计分子的极性/非极性特性基于名称中的取代基 - 关系到电荷分离能力和TADF性能"""
         molecule_name = molecule_name.lower()
         
-        # 不同基团的疏水性贡献（正值更疏水，负值更亲水）
-        hydrophobicity = {
-            'cn': -1,    # 氰基：亲水
-            'nh2': -2,   # 胺基：亲水
-            'oh': -2,    # 羟基：亲水
-            'f': -0.5,   # 氟：轻微亲水
-            'sh': 0.5,   # 硫醇基：轻微疏水
-            'no2': -1.5, # 硝基：亲水
-            'ome': -0.5, # 甲氧基：轻微亲水
-            'nme2': 0.5, # 二甲胺基：轻微疏水
-            'nn+': -3,   # 重氮基团：强亲水
-            'nph3': 3,   # 三苯胺基：疏水
-            'cf3': 2,    # 三氟甲基：疏水
-            'me': 1,     # 甲基：疏水
-            'bh2': 0.5   # 硼基：轻微疏水
+        # 不同基团的极性贡献（正值表示非极性，负值表示极性）
+        polarity_contributions = {
+            'cn': -1,    # 氰基：极性，有助于电荷分离
+            'nh2': -2,   # 胺基：极性，有助于电荷分离
+            'oh': -2,    # 羟基：极性，有助于电荷分离
+            'f': -0.5,   # 氟：轻微极性
+            'sh': 0.5,   # 硫醇基：轻微非极性
+            'no2': -1.5, # 硝基：极性，强电子吸引
+            'ome': -0.5, # 甲氧基：轻微极性
+            'nme2': 0.5, # 二甲胺基：轻微非极性
+            'nn+': -3,   # 重氮基团：高极性，显著影响激发态
+            'nph3': 3,   # 三苯胺基：非极性，影响分子扭曲
+            'cf3': 2,    # 三氟甲基：非极性，但电负性高
+            'me': 1,     # 甲基：非极性，可影响分子扭曲
+            'bh2': 0.5   # 硼基：轻微非极性
         }
         
-        hydrophobicity_score = 0
+        polarity_score = 0
         
-        for group, hydro in hydrophobicity.items():
+        for group, polarity in polarity_contributions.items():
             count = molecule_name.count(group)
-            hydrophobicity_score += hydro * count
+            polarity_score += polarity * count
             
-        return hydrophobicity_score
+        return polarity_score
     
     @staticmethod
     def estimate_planarity(molecule_name):
@@ -278,7 +278,7 @@ class FeatureUtils:
         
         # 其他估计的属性
         df['estimated_polarity'] = df['Molecule'].apply(FeatureUtils.estimate_polarity)
-        df['estimated_hydrophobicity'] = df['Molecule'].apply(FeatureUtils.estimate_hydrophobicity)
+        df['molecular_polarity'] = df['Molecule'].apply(FeatureUtils.estimate_molecular_polarity)
         df['planarity_index'] = df['Molecule'].apply(FeatureUtils.estimate_planarity)
         df['estimated_size'] = df['Molecule'].apply(FeatureUtils.estimate_size)
         
@@ -294,8 +294,9 @@ class FeatureUtils:
     def create_combined_features(df):
         """创建组合特征"""
         # 确保需要的列存在
-        required_cols = ['homo', 'lumo', 'estimated_polarity', 'net_electronic_effect', 
-                        'estimated_conjugation', 'energy', 'estimated_size', 'dipole', 'planarity_index']
+        required_cols = ['homo', 'lumo', 'estimated_polarity', 'molecular_polarity',
+                        'net_electronic_effect', 'estimated_conjugation', 'energy',
+                        'estimated_size', 'dipole', 'planarity_index']
         missing_cols = [col for col in required_cols if col not in df.columns]
         
         if missing_cols:
@@ -306,6 +307,11 @@ class FeatureUtils:
             # 确保极性不为零
             safe_polarity = df['estimated_polarity'].apply(lambda x: x if x != 0 else 0.1)
             df['homo_polarity'] = df['homo'] * safe_polarity
+            
+        if 'homo' in df.columns and 'molecular_polarity' in df.columns:
+            # 添加分子极性与HOMO的相互作用
+            safe_mol_polarity = df['molecular_polarity'].apply(lambda x: x if x != 0 else 0.1)
+            df['homo_molecular_polarity'] = df['homo'] * safe_mol_polarity
             
         if 'lumo' in df.columns and 'net_electronic_effect' in df.columns:
             df['lumo_electronic_effect'] = df['lumo'] * df['net_electronic_effect']
@@ -322,8 +328,65 @@ class FeatureUtils:
             
         if 'dipole' in df.columns and 'planarity_index' in df.columns:
             df['dipole_planarity'] = df['dipole'].fillna(0) * df['planarity_index']
+        
+        # 添加结构相关的组合特征
+        structure_cols = [
+            'conjugation_path_count', 'max_conjugation_length', 
+            'max_dihedral_angle', 'twist_ratio', 
+            'hydrogen_bonds_count', 'max_h_bond_strength',
+            'planarity'
+        ]
+        
+        # 检查必要的列是否存在
+        existing_struct_cols = [col for col in structure_cols if col in df.columns]
+        
+        if existing_struct_cols:
+            logging.info(f"检测到结构特征列: {existing_struct_cols}")
+            
+            if 'homo_lumo_gap' in df.columns:
+                # 共轭与能隙关系
+                if 'max_conjugation_length' in df.columns:
+                    df['gap_vs_conjugation'] = df['homo_lumo_gap'] * df['max_conjugation_length']
+                    
+                # 扭曲与能隙关系
+                if 'twist_ratio' in df.columns:
+                    # 确保分母不为零
+                    safe_twist = df['twist_ratio'].apply(lambda x: max(x, 0.01))
+                    df['gap_vs_twist'] = df['homo_lumo_gap'] / safe_twist
+                    
+                # 氢键与能隙的关系
+                if 'max_h_bond_strength' in df.columns:
+                    df['gap_vs_h_bond'] = df['homo_lumo_gap'] * (1 + df['max_h_bond_strength'])
+                    
+            # S1-T1能隙与结构的关系
+            if 's1_t1_gap_ev' in df.columns:
+                # 与扭曲的关系
+                if 'twist_ratio' in df.columns:
+                    df['s1t1_vs_twist'] = df['s1_t1_gap_ev'] * df['twist_ratio']
+                    
+                # 与平面性的关系
+                if 'planarity' in df.columns:
+                    # 平面性越高（接近1），分母越小，效应越强
+                    safe_nonplanar = (1.01 - df['planarity'].clip(0, 0.99))
+                    df['s1t1_vs_nonplanar'] = df['s1_t1_gap_ev'] / safe_nonplanar
+                    
+                # 与共轭的关系
+                if 'max_conjugation_length' in df.columns:
+                    # 确保分母不为零
+                    safe_conj = df['max_conjugation_length'].apply(lambda x: max(x, 1))
+                    df['s1t1_vs_conjugation'] = df['s1_t1_gap_ev'] / safe_conj
+                    
+                # 与氢键相关的特征
+                if 'hydrogen_bonds_count' in df.columns:
+                    h_bond_factor = df['hydrogen_bonds_count'] + 1  # 加1避免零值
+                    df['s1t1_vs_hbonds'] = df['s1_t1_gap_ev'] * h_bond_factor
+                    
+                # 计算扭曲角对S1-T1能隙的影响
+                if 'max_dihedral_angle' in df.columns:
+                    df['s1t1_vs_dihedral'] = df['s1_t1_gap_ev'] * df['max_dihedral_angle'] / 90
             
         return df
+   
         
     @staticmethod
     def clean_and_prepare_features(df):

@@ -1,0 +1,183 @@
+# streamlit_ui/PaperPage.py
+import streamlit as st
+import os
+import base64
+import tempfile
+import zipfile
+from io import BytesIO
+
+def render_paper_page(paper_agent=None, modeling_results=None, exploration_results=None, insight_results=None):
+    """渲染论文生成页面"""
+    st.title("论文生成")
+    
+    st.markdown("""
+    ## 自动化学术论文生成
+    
+    本页面使用Gatsbi提示格式化工具，根据反向TADF分析系统的结果自动生成学术论文。
+    
+    ### 功能特点:
+    
+    - 自动从分析结果中提取关键内容
+    - 生成格式化的Gatsbi Markdown提示
+    - 可选择使用GPT-4扩展为完整论文
+    - 支持自定义论文内容
+    
+    请确保您已运行探索分析、预测建模和洞察生成步骤，以获得最完整的论文内容。
+    """)
+    
+    # 检查是否有分析结果
+    has_modeling = modeling_results is not None
+    has_exploration = exploration_results is not None
+    has_insight = insight_results is not None
+    
+    if not (has_modeling or has_exploration or has_insight):
+        st.warning("尚未找到分析结果。请先运行探索分析、预测建模和洞察生成步骤。")
+        
+    # 论文信息输入
+    st.subheader("论文信息")
+    
+    with st.form("paper_form"):
+        title = st.text_input("论文标题", "反向TADF分子设计: 颠覆激发态能量排序的计算分析")
+        
+        authors_input = st.text_input("作者（用逗号分隔）", "作者1, 作者2, 作者3")
+        
+        abstract = st.text_area("摘要", "本研究提出了一种计算框架，用于研究反向热活化延迟荧光（TADF）材料，其中第一单重态激发态（S1）能量低于第一三重态激发态（T1）。通过量子化学计算和机器学习分析，我们确定了控制这种不寻常能量排序的关键分子描述符，并提出了开发新的反向TADF候选物的设计原则。")
+        
+        # 高级选项
+        with st.expander("高级选项"):
+            custom_introduction = st.text_area("自定义引言", "", height=200)
+            custom_methods = st.text_area("自定义方法", "", height=200)
+            custom_results = st.text_area("自定义结果", "", height=200)
+            custom_discussion = st.text_area("自定义讨论", "", height=200)
+            custom_conclusion = st.text_area("自定义结论", "", height=200)
+            custom_references = st.text_area("自定义参考文献", "", height=200)
+            
+        # GPT-4 扩展选项
+        use_gpt4 = st.checkbox("使用GPT-4扩展论文")
+        api_key = st.text_input("OpenAI API密钥", type="password") if use_gpt4 else None
+        
+        # 提交按钮
+        submit_button = st.form_submit_button("生成论文")
+    
+    # 生成论文
+    if submit_button:
+        # 准备输入数据
+        input_data = {
+            'title': title,
+            'abstract': abstract
+        }
+        
+        # 添加自定义内容
+        if custom_introduction:
+            input_data['introduction'] = custom_introduction
+        if custom_methods:
+            input_data['methods'] = custom_methods
+        if custom_results:
+            input_data['results'] = custom_results
+        if custom_discussion:
+            input_data['discussion'] = custom_discussion
+        if custom_conclusion:
+            input_data['conclusion'] = custom_conclusion
+        if custom_references:
+            input_data['references'] = custom_references
+            
+        with st.spinner("正在生成论文..."):
+            try:
+                # 初始化论文代理（如果尚未初始化）
+                if paper_agent is None:
+                    from agents.paper_agent import PaperAgent
+                    paper_agent = PaperAgent(
+                        modeling_results=modeling_results,
+                        exploration_results=exploration_results,
+                        insight_results=insight_results
+                    )
+                else:
+                    # 确保加载最新结果
+                    paper_agent.load_results(
+                        modeling_results=modeling_results,
+                        exploration_results=exploration_results,
+                        insight_results=insight_results
+                    )
+                
+                # 运行论文生成
+                result = paper_agent.run_paper_generation(
+                    custom_input=input_data,
+                    use_gpt4=use_gpt4,
+                    api_key=api_key
+                )
+                
+                if result and 'prompt' in result:
+                    prompt_result = result['prompt']
+                    
+                    # 显示生成的Gatsbi提示
+                    st.success("Gatsbi提示已生成！")
+                    
+                    # 创建标签页
+                    tabs = st.tabs(["Markdown预览", "原始内容"])
+                    
+                    with tabs[0]:
+                        st.markdown(prompt_result['content'])
+                        
+                    with tabs[1]:
+                        st.code(prompt_result['content'], language="markdown")
+                    
+                    # 创建下载链接
+                    create_download_link(prompt_result['path'], "下载Gatsbi提示")
+                    
+                    # 如果使用了GPT-4，显示完整论文
+                    if use_gpt4 and 'full_paper' in result and result['full_paper']:
+                        full_paper = result['full_paper']
+                        
+                        st.success("GPT-4完整论文已生成！")
+                        
+                        # 创建标签页
+                        gpt_tabs = st.tabs(["完整论文预览", "原始内容"])
+                        
+                        with gpt_tabs[0]:
+                            st.markdown(full_paper['content'])
+                            
+                        with gpt_tabs[1]:
+                            st.code(full_paper['content'], language="markdown")
+                        
+                        # 创建下载链接
+                        create_download_link(full_paper['path'], "下载GPT-4生成的完整论文")
+                
+            except Exception as e:
+                st.error(f"生成论文时出错: {str(e)}")
+    
+    # 展示使用说明
+    with st.expander("Gatsbi使用指南"):
+        st.markdown("""
+        ### 如何使用生成的Gatsbi提示
+        
+        1. 下载生成的Markdown文件
+        2. 打开Gatsbi桌面应用程序
+        3. 创建新项目并选择"从提示导入"
+        4. 选择下载的Markdown文件
+        5. 使用Gatsbi的AI辅助功能完善论文
+        6. 导出为Word、PDF或其他格式
+        
+        #### 提示：
+        - Gatsbi最适合处理结构化的科学论文
+        - 您可以在Gatsbi中进一步编辑和完善内容
+        - 使用GPT-4扩展选项可以获得更加详细的初始论文
+        """)
+
+def create_download_link(file_path, text):
+    """创建文件下载链接"""
+    with open(file_path, 'rb') as f:
+        data = f.read()
+        
+    b64 = base64.b64encode(data).decode()
+    filename = os.path.basename(file_path)
+    
+    href = f'<a href="data:file/txt;base64,{b64}" download="{filename}">{text}</a>'
+    st.markdown(href, unsafe_allow_html=True)
+
+def load_paper_page(paper_agent=None, modeling_results=None, exploration_results=None, insight_results=None):
+    """加载论文生成页面"""
+    return render_paper_page(paper_agent, modeling_results, exploration_results, insight_results)
+
+if __name__ == "__main__":
+    # 用于直接运行测试
+    load_paper_page()

@@ -20,16 +20,7 @@ from streamlit_ui.FeaturePage import load_feature_page
 from streamlit_ui.ExplorationPage import load_exploration_page
 from streamlit_ui.ModelingPage import load_modeling_page
 from streamlit_ui.ReportPage import load_report_page
-#from streamlit_ui.PaperPage import load_paper_page  # 添加这一行
-
-def dummy_paper_page(*args, **kwargs):
-    import streamlit as st
-    st.title("论文生成功能暂时不可用")
-    st.write("正在维护中，请稍后再试。")
-    
-# 将占位函数赋值给需要的名称
-load_paper_page = dummy_paper_page
-
+from streamlit_ui.PaperPage import load_paper_page  # 添加这一行
 
 class UIAgent:
     """
