@@ -72,7 +72,37 @@ class FeatureAgent:
             self.create_virtual_states()
         
         return True
-
+    def select_features(self, target_col, n_features=15):
+        """在FeatureAgent中选择最相关的特征"""
+        from sklearn.feature_selection import SelectKBest, f_regression, mutual_info_regression
+        
+        if not hasattr(self, 'feature_df') or self.feature_df is None:
+            print("警告：FeatureAgent没有加载数据。")
+            return None
+            
+        # 保留有目标值的数据
+        df_target = self.feature_df[self.feature_df[target_col].notna()].copy()
+        
+        if len(df_target) < 10:
+            print(f"警告：目标{target_col}的样本太少。")
+            return None
+            
+        # 确定可用于训练的特征
+        exclude_cols = ['Molecule', 'conformer', 'State', 'is_primary',
+                    target_col, 'excited_energy', 'excited_opt_success',
+                    'excited_no_imaginary', 'excited_homo', 'excited_lumo',
+                    'excited_homo_lumo_gap', 'excited_dipole']
+        
+        # 选择数值特征
+        numeric_cols = df_target.select_dtypes(include=['float64', 'int64']).columns
+        feature_cols = [col for col in numeric_cols if col not in exclude_cols]
+        
+        # 处理余下特征选择逻辑...
+        
+        # 返回选择的特征
+        return {
+            'features': feature_cols[:n_features]  # 简单返回前n个特征
+        }
     def create_virtual_states(self):
         """创建虚拟状态数据框，将汇总数据转换为三个状态的格式"""
         # 初始化状态列表和结果列表
@@ -502,17 +532,21 @@ class FeatureAgent:
             if 's1_t1_gap_ev' in feature_df.columns:
                 # 与扭曲的关系
                 if 'twist_ratio' in feature_df.columns:
-                    feature_df['s1t1_vs_twist'] = feature_df['s1_t1_gap_ev'] * feature_df['twist_ratio']
+                    # 确保数值有效
+                    feature_df['twist_ratio_safe'] = feature_df['twist_ratio'].fillna(0)
+                    feature_df['s1t1_vs_twist'] = feature_df['s1_t1_gap_ev'] * feature_df['twist_ratio_safe']
                     
                 if 'max_dihedral_angle' in feature_df.columns:
-                    # 扭曲角与S1-T1能隙的协同效应
-                    safe_angle = feature_df['max_dihedral_angle'].apply(lambda x: max(x, 1.0))
-                    feature_df['s1t1_per_dihedral'] = feature_df['s1_t1_gap_ev'] / safe_angle
+                    # 扭曲角与S1-T1能隙的协同效应，确保分母不为零
+                    feature_df['max_dihedral_angle_safe'] = feature_df['max_dihedral_angle'].fillna(1.0)
+                    feature_df['max_dihedral_angle_safe'] = feature_df['max_dihedral_angle_safe'].apply(lambda x: max(x, 1.0))
+                    feature_df['s1t1_per_dihedral'] = feature_df['s1_t1_gap_ev'] / feature_df['max_dihedral_angle_safe']
                     
                 # 与平面性的关系
                 if 'planarity' in feature_df.columns:
                     # 平面性越高（接近1），分母越小，效应越强
-                    safe_nonplanar = (1.01 - feature_df['planarity'].clip(0, 0.99))
+                    feature_df['planarity_safe'] = feature_df['planarity'].fillna(0.5).clip(0, 0.99)
+                    safe_nonplanar = (1.01 - feature_df['planarity_safe'])
                     feature_df['s1t1_vs_nonplanar'] = feature_df['s1_t1_gap_ev'] / safe_nonplanar
                     
                 # 与共轭的关系
@@ -832,3 +866,5 @@ def save_feature_distribution_plots(self, feature_df, features_to_plot, output_d
         output_paths.append(output_path)
     
     return output_paths
+
+

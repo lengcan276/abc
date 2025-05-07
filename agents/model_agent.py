@@ -15,19 +15,21 @@ import logging
 import pickle
 import joblib
 
+
 class ModelAgent:
     """
     Agent responsible for building predictive models for S1-T1 gap properties,
     with focus on classifying potential reverse TADF molecules.
     """
     
-    def __init__(self, feature_file=None):
+    def __init__(self, feature_file=None, feature_agent=None):
         """Initialize the ModelAgent with feature data file."""
         self.feature_file = feature_file
         self.feature_df = None
         self.selected_features = {}
         self.models = {}
         self.feature_importance = {}
+        self.feature_agent = feature_agent
         self.setup_logging()
         
     def setup_logging(self):
@@ -70,91 +72,91 @@ class ModelAgent:
     @staticmethod
     def enhance_dataset_with_crest(feature_df):
         """
-        使用CREST数据增强数据集
+        Enhance dataset with CREST data
         
         Args:
-            feature_df: 原始特征数据框
+            feature_df: Original feature dataframe
         
         Returns:
-            增强后的特征数据框
+            Enhanced feature dataframe
         """
-        print("开始使用CREST数据增强数据集...")
+        print("Starting to enhance dataset with CREST data...")
         original_rows = len(feature_df)
         
-        # 1. 创建基于原始分子的扩展数据框
+        # 1. Create expanded dataframe based on original molecules
         enhanced_df = feature_df.copy()
         
-        # 2. 识别包含CREST数据的分子
+        # 2. Identify molecules with CREST data
         crest_columns = [col for col in feature_df.columns if 'crest' in col.lower()]
         molecules_with_crest = feature_df[feature_df[crest_columns].notna().any(axis=1)]['Molecule'].unique()
         
-        print(f"找到{len(molecules_with_crest)}个带有CREST数据的分子")
+        print(f"Found {len(molecules_with_crest)} molecules with CREST data")
         
-        # 3. 对每个有CREST数据的分子，创建额外的"虚拟样本"
+        # 3. For each molecule with CREST data, create additional "virtual samples"
         synthetic_samples = []
         
         for molecule in molecules_with_crest:
-            # 获取该分子的数据
+            # Get data for this molecule
             mol_data = feature_df[feature_df['Molecule'] == molecule].copy()
             
-            # 检查是否有构象数量信息
+            # Check if there is conformer count information
             conformer_cols = [col for col in crest_columns if 'num_conformers' in col]
             
             for _, row in mol_data.iterrows():
-                # 对于每个状态(neutral, cation, triplet)，尝试创建合成样本
+                # For each state (neutral, cation, triplet), try to create synthetic samples
                 for state in ['neutral', 'cation', 'triplet']:
                     conformer_col = f"{state}_crest_num_conformers"
                     energy_range_col = f"{state}_crest_energy_range"
                     
-                    # 检查是否有该状态的CREST数据
+                    # Check if there is CREST data for this state
                     if conformer_col in row and not pd.isna(row[conformer_col]) and row[conformer_col] > 1:
-                        # 获取构象数量
+                        # Get the number of conformers
                         num_conformers = int(row[conformer_col])
                         
-                        # 创建基于该分子的合成样本
-                        for i in range(min(num_conformers-1, 2)):  # 最多创建2个额外样本，避免过多
-                            # 复制原始数据
+                        # Create synthetic samples based on this molecule
+                        for i in range(min(num_conformers-1, 2)):  # Create at most 2 extra samples to avoid too many
+                            # Copy original data
                             synthetic_row = row.copy()
                             
-                            # 修改分子名称以标识这是合成样本
+                            # Modify molecule name to identify this as a synthetic sample
                             synthetic_row['Molecule'] = f"{molecule}_crest_synth_{i+1}"
                             
-                            # 对CREST特征进行轻微扰动
+                            # Make slight perturbations to CREST features
                             if energy_range_col in row and not pd.isna(row[energy_range_col]):
-                                # 根据能量范围创建合理的扰动
+                                # Create reasonable perturbation based on energy range
                                 energy_range = row[energy_range_col]
-                                # 在原始能量范围基础上添加小的随机波动 (-15% 到 +15%)
+                                # Add small random fluctuation to original energy range (-15% to +15%)
                                 perturbation = np.random.uniform(-0.15, 0.15) * energy_range
                                 synthetic_row[energy_range_col] = energy_range + perturbation
                                 
-                                # 如果有S1-T1能隙数据，也进行轻微扰动
+                                # If there is S1-T1 gap data, also make slight perturbation
                                 if 's1_t1_gap_ev' in row and not pd.isna(row['s1_t1_gap_ev']):
                                     gap = row['s1_t1_gap_ev']
-                                    # 保持间隙符号相同，但添加小的变化（最多±0.1eV）
+                                    # Keep gap sign the same, but add small change (max ±0.1eV)
                                     gap_perturbation = np.random.uniform(-0.1, 0.1)
                                     synthetic_row['s1_t1_gap_ev'] = gap + gap_perturbation
-                                    # 确保符号不变
+                                    # Ensure sign doesn't change
                                     if (gap < 0 and synthetic_row['s1_t1_gap_ev'] > 0) or \
                                     (gap > 0 and synthetic_row['s1_t1_gap_ev'] < 0):
                                         synthetic_row['s1_t1_gap_ev'] = gap
                                 
-                                # 添加该合成样本
+                                # Add this synthetic sample
                                 synthetic_samples.append(synthetic_row)
-                                print(f"为分子 {molecule} 创建基于{state}状态CREST数据的合成样本")
+                                print(f"Created synthetic sample based on {state} state CREST data for molecule {molecule}")
         
-        # 4. 将合成样本添加到数据框
+        # 4. Add synthetic samples to dataframe
         if synthetic_samples:
             synthetic_df = pd.DataFrame(synthetic_samples)
             enhanced_df = pd.concat([enhanced_df, synthetic_df], ignore_index=True)
-            print(f"添加了{len(synthetic_samples)}个基于CREST数据的合成样本")
-            print(f"数据集从{original_rows}行扩展到{len(enhanced_df)}行")
+            print(f"Added {len(synthetic_samples)} synthetic samples based on CREST data")
+            print(f"Dataset expanded from {original_rows} rows to {len(enhanced_df)} rows")
         else:
-            print("没有创建任何合成样本")
+            print("No synthetic samples created")
         
-        # 5. 确保all CREST特征被保留
+        # 5. Ensure all CREST features are retained
         for col in crest_columns:
             if col not in enhanced_df.columns:
-                print(f"警告: CREST特征 {col} 不在增强数据集中")
+                print(f"Warning: CREST feature {col} not in enhanced dataset")
         
         return enhanced_df
 
@@ -185,7 +187,7 @@ class ModelAgent:
         numeric_cols = df_target.select_dtypes(include=['float64', 'int64']).columns
         feature_cols = [col for col in numeric_cols if col not in exclude_cols]
         
-        # 检查是否有CREST特征
+        # Check if there are CREST features
         crest_features = [col for col in feature_cols if 'crest' in col.lower()]
         print(f"Found {len(crest_features)} CREST features: {crest_features}")
         
@@ -193,13 +195,13 @@ class ModelAgent:
         valid_features = []
         for col in feature_cols:
             nan_ratio = df_target[col].isna().mean()
-            # 对CREST特征使用更宽松的缺失值标准
+            # Use more lenient missing value standard for CREST features
             if 'crest' in col.lower():
-                if nan_ratio < 0.5:  # 如果CREST特征缺失值少于50%，仍保留它
+                if nan_ratio < 0.5:  # If CREST feature has less than 50% missing values, keep it
                     valid_features.append(col)
                     print(f"Keeping CREST feature '{col}' with {nan_ratio*100:.1f}% missing values")
             else:
-                if nan_ratio < 0.3:  # 非CREST特征保持原有30%的阈值
+                if nan_ratio < 0.3:  # Non-CREST features keep original 30% threshold
                     valid_features.append(col)
                     
         print(f"Number of valid features: {len(valid_features)}")
@@ -216,10 +218,10 @@ class ModelAgent:
         # Replace infinity values with NaN
         X = X.replace([np.inf, -np.inf], np.nan)
         
-        # 针对CREST特征的特殊处理
+        # Special handling for CREST features
         for col in X.columns:
             if 'crest' in col.lower():
-                # 对于CREST特征中的缺失值，使用0填充而不是中位数
+                # For CREST features with missing values, fill with 0 instead of median
                 missing_count = X[col].isna().sum()
                 if missing_count > 0:
                     X[col] = X[col].fillna(0)
@@ -250,7 +252,7 @@ class ModelAgent:
                 print(f"Identified {extreme_count} extreme values in '{col}', replaced with NaN")
         
         # Fill remaining NaN values
-        # 对于非CREST特征，使用中位数填充缺失值
+        # For non-CREST features, use median to fill missing values
         non_crest_cols = [col for col in X.columns if 'crest' not in col.lower()]
         if non_crest_cols:
             X[non_crest_cols] = X[non_crest_cols].fillna(X[non_crest_cols].median())
@@ -335,19 +337,19 @@ class ModelAgent:
             combined_scores['RF_Rank']
         ) / 3
         
-        # 确保CREST特征的保留
-        # 获取前n_features*0.7个特征
+        # Ensure CREST features are retained
+        # Get top n_features*0.7 features
         n_auto_select = int(n_features * 0.7)
         auto_features = combined_scores.sort_values('Avg_Rank').head(n_auto_select)['Feature'].tolist()
         
-        # 确保至少包含top 3的CREST特征
+        # Ensure at least top 3 CREST features are included
         crest_in_scores = combined_scores[combined_scores['Feature'].str.contains('crest', case=False)]
         top_crest = crest_in_scores.sort_values('Avg_Rank').head(3)['Feature'].tolist()
         
-        # 合并自动选择的特征和top CREST特征
+        # Merge automatically selected features and top CREST features
         final_features = list(set(auto_features + top_crest))
         
-        # 如果特征总数仍小于n_features，添加更多特征
+        # If total feature count is still less than n_features, add more features
         remaining_features = [f for f in combined_scores.sort_values('Avg_Rank')['Feature'].tolist() 
                             if f not in final_features]
         
@@ -355,7 +357,7 @@ class ModelAgent:
             final_features.append(remaining_features.pop(0))
         
         print(f"Selected top {len(final_features)} features:")
-        # 分别显示常规特征和CREST特征
+        # Display regular features and CREST features separately
         regular_features = [f for f in final_features if 'crest' not in f.lower()]
         crest_features_selected = [f for f in final_features if 'crest' in f.lower()]
         
@@ -378,7 +380,7 @@ class ModelAgent:
         plt.figure(figsize=(12, 8))
         top_features = combined_scores.sort_values('Avg_Rank').head(15)
         
-        # 为CREST特征使用不同的颜色
+        # Use different colors for CREST features
         colors = ['#1f77b4' if 'crest' not in feat.lower() else '#ff7f0e' 
                 for feat in top_features['Feature']]
         
@@ -386,7 +388,7 @@ class ModelAgent:
         plt.title(f'Top 15 Features for Predicting {target_col} (Lower Rank is Better)')
         plt.xlabel('Average Rank')
         
-        # 添加图例
+        # Add legend
         from matplotlib.patches import Patch
         legend_elements = [
             Patch(facecolor='#1f77b4', label='Regular Features'),
@@ -398,7 +400,7 @@ class ModelAgent:
         plt.savefig(os.path.join(results_dir, f'feature_ranks_{target_col}.png'))
         plt.close()
         
-        # 额外创建CREST特征重要性专用图表
+        # Create additional chart specifically for CREST feature importance
         plt.figure(figsize=(10, 6))
         crest_importance = combined_scores[combined_scores['Feature'].str.contains('crest', case=False)]
         if not crest_importance.empty:
@@ -709,210 +711,261 @@ class ModelAgent:
             'importance_plot': os.path.join(results_dir, 'regression_feature_importance.png')
         }
     
-    def run_modeling_pipeline(self, feature_file=None):
-        """运行完整的建模流程"""
+    def run_modeling_pipeline(self, feature_file=None, feature_agent=None):
+        """Run the complete modeling workflow"""
         try:
-            st.write("开始建模分析流程...")
-            print("开始建模分析流程...")
+            st.write("Starting modeling analysis workflow...")
+            print("Starting modeling analysis workflow...")
             
-            # 加载特征数据
+            # 如果传入了feature_agent，则保存它
+            if feature_agent:
+                self.feature_agent = feature_agent
+            
+            # 加载特征数据到ModelAgent
             if feature_file:
                 self.feature_file = feature_file
                 
             if not self.load_data():
-                st.error("加载数据失败，退出建模流程")
-                print("加载数据失败，退出建模流程")
+                st.error("Failed to load data, exiting modeling workflow")
+                print("Failed to load data, exiting modeling workflow")
                 return None
+                    
+            # 确保在self.feature_df中创建is_negative_gap目标变量
+            if 's1_t1_gap_ev' in self.feature_df.columns:
+                self.feature_df['is_negative_gap'] = (self.feature_df['s1_t1_gap_ev'] < 0).astype(int)
+                st.write(f"Created classification target variable: is_negative_gap")
+                st.write(f"Negative samples (S1-T1 < 0): {self.feature_df['is_negative_gap'].sum()}")
+                st.write(f"Positive samples (S1-T1 >= 0): {(self.feature_df['is_negative_gap'] == 0).sum()}")
+                print(f"Created classification target variable: is_negative_gap")
+                print(f"Negative samples (S1-T1 < 0): {self.feature_df['is_negative_gap'].sum()}")
+                print(f"Positive samples (S1-T1 >= 0): {(self.feature_df['is_negative_gap'] == 0).sum()}")
                 
-            st.write("使用CREST数据增强数据集...")
-            print("使用CREST数据增强数据集...")
-            # 确保self.enhance_dataset_with_crest存在，否则可能是函数定义错误
+                # 如果有feature_agent，确保它也有相同的数据
+                if hasattr(self, 'feature_agent') and self.feature_agent:
+                    # 复制目标变量和数据到feature_agent
+                    self.feature_agent.feature_df = self.feature_df.copy()
+                    print("已将数据复制到feature_agent")
+            
+            st.write("Enhancing dataset with CREST data...")
+            print("Enhancing dataset with CREST data...")
+            # 确保方法存在
             try:
                 self.feature_df = self.enhance_dataset_with_crest(self.feature_df)
-            except Exception as e:
-                st.error(f"增强数据集时出错: {str(e)}")
-                print(f"增强数据集时出错: {str(e)}")
-                # 继续使用原始数据
                 
-            # 创建结果目录
+                # 更新feature_agent中的数据
+                if hasattr(self, 'feature_agent') and self.feature_agent:
+                    self.feature_agent.feature_df = self.feature_df.copy()
+                    print("已更新feature_agent中的增强数据")
+            except Exception as e:
+                st.error(f"Error enhancing dataset: {str(e)}")
+                print(f"Error enhancing dataset: {str(e)}")
+                    
+            # Create results directory
             results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
             models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
             
-            # 确保目录存在
+            # Ensure directories exist
             os.makedirs(results_dir, exist_ok=True)
             os.makedirs(models_dir, exist_ok=True)
             
-            st.write(f"结果将保存到: {results_dir}")
-            st.write(f"模型将保存到: {models_dir}")
-            print(f"结果将保存到: {results_dir}")
-            print(f"模型将保存到: {models_dir}")
+            st.write(f"Results will be saved to: {results_dir}")
+            st.write(f"Models will be saved to: {models_dir}")
+            print(f"Results will be saved to: {results_dir}")
+            print(f"Models will be saved to: {models_dir}")
             
-            # 检查之前运行的结果
+            # Check for previous run results
             existing_files = [f for f in os.listdir(results_dir) if f.endswith('.png')]
             if existing_files:
-                st.write(f"发现{len(existing_files)}个现有图表文件，将被新结果替换")
-                print(f"发现{len(existing_files)}个现有图表文件，将被新结果替换")
+                st.write(f"Found {len(existing_files)} existing chart files, will be replaced with new results")
+                print(f"Found {len(existing_files)} existing chart files, will be replaced with new results")
             
-            # 准备分类数据
-            st.write("准备S1-T1 Gap分类数据...")
-            print("准备S1-T1 Gap分类数据...")
+            # Prepare classification data
+            st.write("Preparing S1-T1 Gap classification data...")
+            print("Preparing S1-T1 Gap classification data...")
             
-            # 创建分类目标
+            # Create classification target
             if 's1_t1_gap_ev' in self.feature_df.columns:
-                # 打印s1_t1_gap_ev列的基本统计信息，确认数据是否合理
-                st.write(f"s1_t1_gap_ev列的描述统计: {self.feature_df['s1_t1_gap_ev'].describe()}")
-                print(f"s1_t1_gap_ev列的描述统计: {self.feature_df['s1_t1_gap_ev'].describe()}")
+                # Print basic statistics of s1_t1_gap_ev column to confirm data is reasonable
+                st.write(f"Descriptive statistics for s1_t1_gap_ev column: {self.feature_df['s1_t1_gap_ev'].describe()}")
+                print(f"Descriptive statistics for s1_t1_gap_ev column: {self.feature_df['s1_t1_gap_ev'].describe()}")
                 
-                # 检查是否有无效值（NaN或无穷值）
+                # Check for invalid values (NaN or infinity)
                 invalid_count = self.feature_df['s1_t1_gap_ev'].isna().sum()
                 if invalid_count > 0:
-                    st.write(f"警告: s1_t1_gap_ev列中有{invalid_count}个无效值")
-                    print(f"警告: s1_t1_gap_ev列中有{invalid_count}个无效值")
+                    st.write(f"Warning: {invalid_count} invalid values in s1_t1_gap_ev column")
+                    print(f"Warning: {invalid_count} invalid values in s1_t1_gap_ev column")
                 
                 self.feature_df['is_negative_gap'] = (self.feature_df['s1_t1_gap_ev'] < 0).astype(int)
-                st.write(f"创建了分类目标变量: is_negative_gap")
-                st.write(f"阴性样本(S1-T1 < 0): {self.feature_df['is_negative_gap'].sum()}")
-                st.write(f"阳性样本(S1-T1 >= 0): {(self.feature_df['is_negative_gap'] == 0).sum()}")
-                print(f"创建了分类目标变量: is_negative_gap")
-                print(f"阴性样本(S1-T1 < 0): {self.feature_df['is_negative_gap'].sum()}")
-                print(f"阳性样本(S1-T1 >= 0): {(self.feature_df['is_negative_gap'] == 0).sum()}")
+                st.write(f"Created classification target variable: is_negative_gap")
+                st.write(f"Negative samples (S1-T1 < 0): {self.feature_df['is_negative_gap'].sum()}")
+                st.write(f"Positive samples (S1-T1 >= 0): {(self.feature_df['is_negative_gap'] == 0).sum()}")
+                print(f"Created classification target variable: is_negative_gap")
+                print(f"Negative samples (S1-T1 < 0): {self.feature_df['is_negative_gap'].sum()}")
+                print(f"Positive samples (S1-T1 >= 0): {(self.feature_df['is_negative_gap'] == 0).sum()}")
             else:
-                st.error(f"警告: 找不到's1_t1_gap_ev'列，无法创建分类目标")
-                print(f"警告: 找不到's1_t1_gap_ev'列，无法创建分类目标")
-                # 检查是否有可能使用其他命名的列
+                st.error(f"Warning: Could not find 's1_t1_gap_ev' column, cannot create classification target")
+                print(f"Warning: Could not find 's1_t1_gap_ev' column, cannot create classification target")
+                # Check if there might be other columns with gap in the name
                 potential_gap_cols = [col for col in self.feature_df.columns if 'gap' in col.lower()]
                 if potential_gap_cols:
-                    st.write(f"发现可能的能隙列: {potential_gap_cols}")
-                    print(f"发现可能的能隙列: {potential_gap_cols}")
+                    st.write(f"Found potential gap columns: {potential_gap_cols}")
+                    print(f"Found potential gap columns: {potential_gap_cols}")
                 return None
             
-            # 对分类目标进行特征选择
-            st.write("对分类目标进行特征选择...")
-            print("对分类目标进行特征选择...")
+            # Select features for classification target
+            st.write("Selecting features for classification target...")
+            print("Selecting features for classification target...")
             try:
-                # 确认feature_agent存在
-                if hasattr(self, 'feature_agent'):
+                # 检查feature_agent是否存在且有select_features方法
+                if hasattr(self, 'feature_agent') and self.feature_agent and hasattr(self.feature_agent, 'select_features'):
                     class_selection = self.feature_agent.select_features('is_negative_gap')
                 else:
-                    st.error("feature_agent不存在，使用内部select_features方法")
-                    print("feature_agent不存在，使用内部select_features方法")
+                    st.write("Using internal select_features method for classification")
+                    print("Using internal select_features method for classification")
                     class_selection = self.select_features('is_negative_gap')
                     
                 if not class_selection:
-                    st.error("分类特征选择失败")
-                    print("分类特征选择失败")
+                    st.error("Classification feature selection failed")
+                    print("Classification feature selection failed")
                     return None
                     
                 class_features = class_selection['features']
-                st.write(f"选择了{len(class_features)}个分类特征")
-                print(f"选择了{len(class_features)}个分类特征")
+                st.write(f"Selected {len(class_features)} classification features")
+                print(f"Selected {len(class_features)} classification features")
             except Exception as e:
-                st.error(f"特征选择过程中出错: {str(e)}")
-                print(f"特征选择过程中出错: {str(e)}")
-                return None
+                st.error(f"Error during feature selection process: {str(e)}")
+                print(f"Error during feature selection process: {str(e)}")
+                # 尝试使用自身方法作为回退
+                try:
+                    class_selection = self.select_features('is_negative_gap')
+                    if class_selection:
+                        class_features = class_selection['features']
+                        st.write(f"Fallback feature selection successful: {len(class_features)} features")
+                        print(f"Fallback feature selection successful: {len(class_features)} features")
+                    else:
+                        return None
+                except Exception as e2:
+                    st.error(f"Fallback feature selection also failed: {str(e2)}")
+                    print(f"Fallback feature selection also failed: {str(e2)}")
+                    return None
                 
-            # 检查是否包含CREST特征
+            # Check if CREST features are included
             crest_features = [f for f in class_features if 'crest' in f.lower()]
-            st.write(f"分类特征中包含{len(crest_features)}个CREST特征: {crest_features}")
-            print(f"分类特征中包含{len(crest_features)}个CREST特征: {crest_features}")
+            st.write(f"Classification features include {len(crest_features)} CREST features: {crest_features}")
+            print(f"Classification features include {len(crest_features)} CREST features: {crest_features}")
             
-            # 准备回归数据
-            st.write("准备S1-T1 Gap回归数据...")
-            print("准备S1-T1 Gap回归数据...")
+            # Prepare regression data
+            st.write("Preparing S1-T1 Gap regression data...")
+            print("Preparing S1-T1 Gap regression data...")
             try:
-                if hasattr(self, 'feature_agent'):
+                # 检查feature_agent是否存在且有select_features方法
+                if hasattr(self, 'feature_agent') and self.feature_agent and hasattr(self.feature_agent, 'select_features'):
                     reg_selection = self.feature_agent.select_features('s1_t1_gap_ev')
                 else:
+                    st.write("Using internal select_features method for regression")
+                    print("Using internal select_features method for regression")
                     reg_selection = self.select_features('s1_t1_gap_ev')
                     
                 if not reg_selection:
-                    st.error("回归特征选择失败")
-                    print("回归特征选择失败")
+                    st.error("Regression feature selection failed")
+                    print("Regression feature selection failed")
                     return None
                     
                 reg_features = reg_selection['features']
-                st.write(f"选择了{len(reg_features)}个回归特征")
-                print(f"选择了{len(reg_features)}个回归特征")
+                st.write(f"Selected {len(reg_features)} regression features")
+                print(f"Selected {len(reg_features)} regression features")
             except Exception as e:
-                st.error(f"回归特征选择过程中出错: {str(e)}")
-                print(f"回归特征选择过程中出错: {str(e)}")
-                return None
+                st.error(f"Error during regression feature selection process: {str(e)}")
+                print(f"Error during regression feature selection process: {str(e)}")
+                # 尝试使用自身方法作为回退
+                try:
+                    reg_selection = self.select_features('s1_t1_gap_ev')
+                    if reg_selection:
+                        reg_features = reg_selection['features']
+                        st.write(f"Fallback regression feature selection successful: {len(reg_features)} features")
+                        print(f"Fallback regression feature selection successful: {len(reg_features)} features")
+                    else:
+                        return None
+                except Exception as e2:
+                    st.error(f"Fallback regression feature selection also failed: {str(e2)}")
+                    print(f"Fallback regression feature selection also failed: {str(e2)}")
+                    return None
                 
-            # 检查回归特征中的CREST特征
+            # Check CREST features in regression features
             crest_reg_features = [f for f in reg_features if 'crest' in f.lower()]
-            st.write(f"回归特征中包含{len(crest_reg_features)}个CREST特征: {crest_reg_features}")
-            print(f"回归特征中包含{len(crest_reg_features)}个CREST特征: {crest_reg_features}")
+            st.write(f"Regression features include {len(crest_reg_features)} CREST features: {crest_reg_features}")
+            print(f"Regression features include {len(crest_reg_features)} CREST features: {crest_reg_features}")
             
-            # 准备分类训练数据
-            st.write("准备分类训练数据...")
-            print("准备分类训练数据...")
+            # Prepare classification training data
+            st.write("Preparing classification training data...")
+            print("Preparing classification training data...")
             try:
                 class_data = self.feature_df[self.feature_df['is_negative_gap'].notna()].copy()
                 
-                # 检查class_features是否在数据集中
+                # Check if class_features exist in dataset
                 missing_features = [f for f in class_features if f not in class_data.columns]
                 if missing_features:
-                    st.error(f"数据中缺少以下分类特征: {missing_features}")
-                    print(f"数据中缺少以下分类特征: {missing_features}")
-                    # 过滤掉缺少的特征
+                    st.error(f"The following classification features are missing from data: {missing_features}")
+                    print(f"The following classification features are missing from data: {missing_features}")
+                    # Filter out missing features
                     class_features = [f for f in class_features if f in class_data.columns]
-                    st.write(f"继续使用可用的{len(class_features)}个特征")
-                    print(f"继续使用可用的{len(class_features)}个特征")
+                    st.write(f"Continuing with {len(class_features)} available features")
+                    print(f"Continuing with {len(class_features)} available features")
                     
                 if not class_features:
-                    st.error("没有可用的分类特征，无法继续")
-                    print("没有可用的分类特征，无法继续")
+                    st.error("No classification features available, cannot continue")
+                    print("No classification features available, cannot continue")
                     return None
                     
                 X_class = class_data[class_features].values
                 y_class = class_data['is_negative_gap'].values
-                st.write(f"分类训练数据: {X_class.shape[0]}行, {X_class.shape[1]}列")
-                print(f"分类训练数据: {X_class.shape[0]}行, {X_class.shape[1]}列")
+                st.write(f"Classification training data: {X_class.shape[0]} rows, {X_class.shape[1]} columns")
+                print(f"Classification training data: {X_class.shape[0]} rows, {X_class.shape[1]} columns")
             except Exception as e:
-                st.error(f"准备分类数据时出错: {str(e)}")
-                print(f"准备分类数据时出错: {str(e)}")
+                st.error(f"Error preparing classification data: {str(e)}")
+                print(f"Error preparing classification data: {str(e)}")
                 return None
                 
-            # 准备回归训练数据
-            st.write("准备回归训练数据...")
-            print("准备回归训练数据...")
+            # Prepare regression training data
+            st.write("Preparing regression training data...")
+            print("Preparing regression training data...")
             try:
                 reg_data = self.feature_df[self.feature_df['s1_t1_gap_ev'].notna()].copy()
                 
-                # 检查reg_features是否在数据集中
+                # Check if reg_features exist in dataset
                 missing_features = [f for f in reg_features if f not in reg_data.columns]
                 if missing_features:
-                    st.error(f"数据中缺少以下回归特征: {missing_features}")
-                    print(f"数据中缺少以下回归特征: {missing_features}")
-                    # 过滤掉缺少的特征
+                    st.error(f"The following regression features are missing from data: {missing_features}")
+                    print(f"The following regression features are missing from data: {missing_features}")
+                    # Filter out missing features
                     reg_features = [f for f in reg_features if f in reg_data.columns]
-                    st.write(f"继续使用可用的{len(reg_features)}个特征")
-                    print(f"继续使用可用的{len(reg_features)}个特征")
+                    st.write(f"Continuing with {len(reg_features)} available features")
+                    print(f"Continuing with {len(reg_features)} available features")
                     
                 if not reg_features:
-                    st.error("没有可用的回归特征，无法继续")
-                    print("没有可用的回归特征，无法继续")
+                    st.error("No regression features available, cannot continue")
+                    print("No regression features available, cannot continue")
                     return None
                     
                 X_reg = reg_data[reg_features].values
                 y_reg = reg_data['s1_t1_gap_ev'].values
-                st.write(f"回归训练数据: {X_reg.shape[0]}行, {X_reg.shape[1]}列")
-                print(f"回归训练数据: {X_reg.shape[0]}行, {X_reg.shape[1]}列")
+                st.write(f"Regression training data: {X_reg.shape[0]} rows, {X_reg.shape[1]} columns")
+                print(f"Regression training data: {X_reg.shape[0]} rows, {X_reg.shape[1]} columns")
             except Exception as e:
-                st.error(f"准备回归数据时出错: {str(e)}")
-                print(f"准备回归数据时出错: {str(e)}")
+                st.error(f"Error preparing regression data: {str(e)}")
+                print(f"Error preparing regression data: {str(e)}")
                 return None
                 
-            # 训练分类模型
-            st.write("训练S1-T1 Gap分类模型...")
-            print("训练S1-T1 Gap分类模型...")
+            # Train classification model
+            st.write("Training S1-T1 Gap classification model...")
+            print("Training S1-T1 Gap classification model...")
             try:
                 from sklearn.ensemble import RandomForestClassifier
                 
-                # 如果样本量小于10，使用简单决策树
+                # Use simple decision tree if sample size is less than 10
                 if len(y_class) < 10:
-                    st.write("警告: 样本量很小，使用简化模型")
-                    print("警告: 样本量很小，使用简化模型")
+                    st.write("Warning: Sample size is very small, using simplified model")
+                    print("Warning: Sample size is very small, using simplified model")
                     from sklearn.tree import DecisionTreeClassifier
                     clf_model = DecisionTreeClassifier(max_depth=2, random_state=42)
                 else:
@@ -924,12 +977,12 @@ class ModelAgent:
                         random_state=42
                     )
                 
-                # 训练和评估
-                st.write("使用交叉验证训练和评估分类模型...")
-                print("使用交叉验证训练和评估分类模型...")
+                # Training and evaluation
+                st.write("Using cross-validation to train and evaluate classification model...")
+                print("Using cross-validation to train and evaluate classification model...")
                 from sklearn.model_selection import cross_val_score, LeaveOneOut
                 
-                # 样本量小于10使用留一交叉验证
+                # Use leave-one-out cross-validation if sample size less than 10
                 if len(y_class) < 10:
                     cv = LeaveOneOut()
                     scores = cross_val_score(clf_model, X_class, y_class, cv=cv, scoring='accuracy')
@@ -946,31 +999,31 @@ class ModelAgent:
                         'features': class_features
                     }
                 
-                st.write(f"分类模型平均准确率: {scores.mean():.4f}")
-                print(f"分类模型平均准确率: {scores.mean():.4f}")
+                st.write(f"Classification model average accuracy: {scores.mean():.4f}")
+                print(f"Classification model average accuracy: {scores.mean():.4f}")
                 
-                # 训练最终分类模型
+                # Train final classification model
                 clf_model.fit(X_class, y_class)
                 
-                # 生成分类模型可视化
-                st.write("生成分类模型可视化...")
-                print("生成分类模型可视化...")
+                # Generate classification model visualizations
+                st.write("Generating classification model visualizations...")
+                print("Generating classification model visualizations...")
                 self.generate_visualizations(clf_model, X_class, y_class, class_features, 'is_negative_gap')
             except Exception as e:
-                st.error(f"分类模型训练过程中出错: {str(e)}")
-                print(f"分类模型训练过程中出错: {str(e)}")
+                st.error(f"Error during classification model training: {str(e)}")
+                print(f"Error during classification model training: {str(e)}")
                 class_result = None
                 
-            # 训练回归模型
-            st.write("训练S1-T1 Gap回归模型...")
-            print("训练S1-T1 Gap回归模型...")
+            # Train regression model
+            st.write("Training S1-T1 Gap regression model...")
+            print("Training S1-T1 Gap regression model...")
             try:
                 from sklearn.ensemble import RandomForestRegressor
                 
-                # 如果样本量小于10，使用简单模型
+                # Use simple model if sample size is less than 10
                 if len(y_reg) < 10:
-                    st.write("警告: 样本量很小，使用简化回归模型")
-                    print("警告: 样本量很小，使用简化回归模型")
+                    st.write("Warning: Sample size is very small, using simplified regression model")
+                    print("Warning: Sample size is very small, using simplified regression model")
                     from sklearn.tree import DecisionTreeRegressor
                     reg_model = DecisionTreeRegressor(max_depth=2, random_state=42)
                 else:
@@ -981,13 +1034,13 @@ class ModelAgent:
                         random_state=42
                     )
                     
-                # 训练和评估
-                st.write("使用交叉验证训练和评估回归模型...")
-                print("使用交叉验证训练和评估回归模型...")
+                # Training and evaluation
+                st.write("Using cross-validation to train and evaluate regression model...")
+                print("Using cross-validation to train and evaluate regression model...")
                 from sklearn.model_selection import cross_val_score
                 from sklearn.metrics import mean_squared_error, r2_score
                 
-                # 样本量小于10使用留一交叉验证
+                # Use leave-one-out cross-validation if sample size less than 10
                 if len(y_reg) < 10:
                     cv = LeaveOneOut()
                     neg_mse_scores = cross_val_score(reg_model, X_reg, y_reg, cv=cv, 
@@ -1009,60 +1062,60 @@ class ModelAgent:
                     'features': reg_features
                 }
                 
-                st.write(f"回归模型RMSE: {rmse:.4f}, R²: {r2:.4f}")
-                print(f"回归模型RMSE: {rmse:.4f}, R²: {r2:.4f}")
+                st.write(f"Regression model RMSE: {rmse:.4f}, R²: {r2:.4f}")
+                print(f"Regression model RMSE: {rmse:.4f}, R²: {r2:.4f}")
                 
-                # 训练最终回归模型
+                # Train final regression model
                 reg_model.fit(X_reg, y_reg)
                 
-                # 生成回归模型可视化
-                st.write("生成回归模型可视化...")
-                print("生成回归模型可视化...")
+                # Generate regression model visualizations
+                st.write("Generating regression model visualizations...")
+                print("Generating regression model visualizations...")
                 self.generate_visualizations(reg_model, X_reg, y_reg, reg_features, 's1_t1_gap_ev')
             except Exception as e:
-                st.error(f"回归模型训练过程中出错: {str(e)}")
-                print(f"回归模型训练过程中出错: {str(e)}")
+                st.error(f"Error during regression model training: {str(e)}")
+                print(f"Error during regression model training: {str(e)}")
                 reg_result = None
                 
-            # 保存模型
-            st.write("保存模型到磁盘...")
-            print("保存模型到磁盘...")
+            # Save models
+            st.write("Saving models to disk...")
+            print("Saving models to disk...")
             try:
                 import joblib
                 
-                # 保存分类模型
+                # Save classification model
                 if class_result:
                     clf_path = os.path.join(models_dir, 's1t1_gap_classifier.joblib')
                     joblib.dump(clf_model, clf_path)
-                    st.write(f"分类模型已保存: {clf_path}")
-                    print(f"分类模型已保存: {clf_path}")
+                    st.write(f"Classification model saved: {clf_path}")
+                    print(f"Classification model saved: {clf_path}")
                     
-                    # 保存特征名称
+                    # Save feature names
                     with open(os.path.join(models_dir, 'classification_features.txt'), 'w') as f:
                         for feature in class_features:
                             f.write(f"{feature}\n")
                 
-                # 保存回归模型
+                # Save regression model
                 if reg_result:
                     reg_path = os.path.join(models_dir, 's1t1_gap_regressor.joblib')
                     joblib.dump(reg_model, reg_path)
-                    st.write(f"回归模型已保存: {reg_path}")
-                    print(f"回归模型已保存: {reg_path}")
+                    st.write(f"Regression model saved: {reg_path}")
+                    print(f"Regression model saved: {reg_path}")
                     
-                    # 保存特征名称
+                    # Save feature names
                     with open(os.path.join(models_dir, 'regression_features.txt'), 'w') as f:
                         for feature in reg_features:
                             f.write(f"{feature}\n")
             except Exception as e:
-                st.error(f"保存模型时出错: {str(e)}")
-                print(f"保存模型时出错: {str(e)}")
+                st.error(f"Error saving models: {str(e)}")
+                print(f"Error saving models: {str(e)}")
                 
-            # 最后，检查生成的图表文件
-            st.write("检查生成的图表文件:")
-            print("检查生成的图表文件:")
+            # Finally, check generated chart files
+            st.write("Checking generated chart files:")
+            print("Checking generated chart files:")
             generated_files = [f for f in os.listdir(results_dir) if f.endswith('.png')]
-            st.write(f"生成的图表文件数量: {len(generated_files)}")
-            print(f"生成的图表文件数量: {len(generated_files)}")
+            st.write(f"Number of generated chart files: {len(generated_files)}")
+            print(f"Number of generated chart files: {len(generated_files)}")
             for file in generated_files:
                 st.write(f" - {file}")
                 print(f" - {file}")
@@ -1075,155 +1128,196 @@ class ModelAgent:
             if class_result or reg_result:
                 return result
             else:
-                st.error("分类和回归模型均训练失败")
-                print("分类和回归模型均训练失败")
+                st.error("Both classification and regression models failed to train")
+                print("Both classification and regression models failed to train")
                 return None
                 
         except Exception as e:
-            st.error(f"建模流程出错: {str(e)}")
-            print(f"建模流程出错: {str(e)}")
+            st.error(f"Error in modeling workflow: {str(e)}")
+            print(f"Error in modeling workflow: {str(e)}")
             import traceback
             tb = traceback.format_exc()
-            st.error(f"完整错误信息: {tb}")
-            print(f"完整错误信息: {tb}")
+            st.error(f"Complete error information: {tb}")
+            print(f"Complete error information: {tb}")
             return None
     
     def generate_visualizations(self, model, X, y, feature_names, target_col):
-        """生成模型可视化图表"""
+        """Generate model visualizations"""
         try:
-            # 创建结果目录
+            # Create results directory
             results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
             os.makedirs(results_dir, exist_ok=True)
             
-            print(f"正在生成{target_col}的可视化图表，保存到: {results_dir}")
+            print(f"Generating visualizations for {target_col}, saving to: {results_dir}")
             
-            # 添加详细的文件路径打印
+            # Print detailed file path
             feature_importance_path = os.path.join(results_dir, f'feature_ranks_{target_col}.png')
-            print(f"特征重要性图表路径: {feature_importance_path}")
+            print(f"Feature importance chart path: {feature_importance_path}")
             
-            # 确保matplotlib后端正确设置（避免GUI问题）
+            # Ensure matplotlib backend is set correctly
             import matplotlib
-            matplotlib.use('Agg')  # 使用非交互式后端
+            matplotlib.use('Agg')  # Use non-interactive backend
             
-            # 特征重要性可视化
+            # Critical font configuration to avoid errors
+            plt.rcParams.update({
+                'font.family': 'sans-serif',
+                'font.sans-serif': ['Arial'],
+                'font.size': 10,
+                'text.color': 'black',
+                'axes.labelcolor': 'black',
+                'xtick.color': 'black',
+                'ytick.color': 'black',
+                'figure.dpi': 300,
+                'savefig.dpi': 300
+            })
+            
+            # Feature importance visualization
             if hasattr(model, 'feature_importances_'):
                 plt.figure(figsize=(12, 8))
                 importances = model.feature_importances_
                 indices = np.argsort(importances)[::-1]
                 
-                # 只展示前15个特征
+                # Only show top 15 features
                 n_features = min(15, len(feature_names))
                 plt.barh(range(n_features), importances[indices[:n_features]], align='center')
                 plt.yticks(range(n_features), [feature_names[i] for i in indices[:n_features]])
-                plt.xlabel('特征重要性')
-                plt.ylabel('特征')
-                plt.title(f'{target_col}特征重要性')
+                plt.xlabel('Importance')
+                plt.ylabel('Feature')
                 
-                # 使用高DPI和紧凑布局保存
-                plt.tight_layout()
-                plt.savefig(feature_importance_path, dpi=300, bbox_inches='tight')
+                # NO TITLE - avoid font rendering issues
+                
+                # Save without tight_layout
+                plt.savefig(feature_importance_path)
                 plt.close()
                 
-                print(f"特征重要性图表已保存: {feature_importance_path}")
-                
-                # 检查文件是否存在
-                if os.path.exists(feature_importance_path):
-                    print(f"确认文件已成功创建: {feature_importance_path}")
-                    print(f"文件大小: {os.path.getsize(feature_importance_path)} 字节")
-                else:
-                    print(f"警告: 文件未能创建: {feature_importance_path}")
+                print(f"Feature importance chart saved: {feature_importance_path}")
             
-            # 为分类模型创建混淆矩阵
+            # For classification model, create confusion matrix
             if target_col == 'is_negative_gap':
                 from sklearn.metrics import confusion_matrix
                 from sklearn.model_selection import cross_val_predict
                 
-                # 使用交叉验证获取预测
+                # Use cross-validation to get predictions
                 y_pred = cross_val_predict(model, X, y, cv=5)
                 cm = confusion_matrix(y, y_pred)
                 
                 plt.figure(figsize=(8, 6))
                 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                            xticklabels=['正S1-T1', '负S1-T1'],
-                            yticklabels=['正S1-T1', '负S1-T1'])
-                plt.xlabel('预测')
-                plt.ylabel('实际')
-                plt.title('分类模型混淆矩阵')
+                            xticklabels=['Positive', 'Negative'],
+                            yticklabels=['Positive', 'Negative'])
+                plt.xlabel('Predicted')
+                plt.ylabel('Actual')
                 
+                # NO TITLE - avoid font rendering issues
+                
+                # Save confusion matrix
                 cm_path = os.path.join(results_dir, 'classification_confusion_matrix.png')
-                plt.tight_layout()
-                plt.savefig(cm_path, dpi=300, bbox_inches='tight')
+                plt.savefig(cm_path)
                 plt.close()
                 
-                print(f"混淆矩阵图表已保存: {cm_path}")
+                print(f"Confusion matrix chart saved: {cm_path}")
             
-            # 为回归模型创建预测vs实际值图
+            # For regression model, create prediction vs actual plot
             if target_col == 's1_t1_gap_ev':
                 from sklearn.model_selection import cross_val_predict
                 
-                # 使用交叉验证获取预测
+                # Use cross-validation to get predictions
                 y_pred = cross_val_predict(model, X, y, cv=5)
                 
                 plt.figure(figsize=(8, 8))
                 plt.scatter(y, y_pred, alpha=0.5)
                 
-                # 添加理想线(y=x)
+                # Add ideal line (y=x)
                 min_val = min(min(y), min(y_pred))
                 max_val = max(max(y), max(y_pred))
                 plt.plot([min_val, max_val], [min_val, max_val], 'r--')
                 
-                plt.xlabel('实际值')
-                plt.ylabel('预测值')
-                plt.title('回归模型: 预测 vs 实际')
+                plt.xlabel('Actual')
+                plt.ylabel('Predicted')
                 
-                # 添加零线
+                # Add zero lines
                 plt.axhline(y=0, color='green', linestyle='-', alpha=0.3)
                 plt.axvline(x=0, color='green', linestyle='-', alpha=0.3)
                 
+                # NO TITLE - avoid font rendering issues
+                
+                # Save regression plot
                 reg_path = os.path.join(results_dir, 'regression_prediction.png')
-                plt.tight_layout()
-                plt.savefig(reg_path, dpi=300, bbox_inches='tight')
+                plt.savefig(reg_path)
                 plt.close()
                 
-                print(f"回归预测图表已保存: {reg_path}")
+                print(f"Regression prediction chart saved: {reg_path}")
+            
+            # Create feature importance visualization (simplified version)
+            feature_imp_path = os.path.join(results_dir, f'classification_feature_importance.png' if target_col == 'is_negative_gap' 
+                                        else 'regression_feature_importance.png')
+            
+            if hasattr(model, 'feature_importances_'):
+                plt.figure(figsize=(10, 8))
                 
-            # 添加额外的图表：突出显示CREST特征
+                # Create simple feature importance bars without using seaborn or fancy features
+                importance_df = pd.DataFrame({
+                    'Feature': feature_names,
+                    'Importance': model.feature_importances_
+                }).sort_values('Importance', ascending=False).head(15)
+                
+                # Basic bar chart without text labels that might cause issues
+                plt.barh(range(len(importance_df)), importance_df['Importance'].values)
+                plt.yticks(range(len(importance_df)), importance_df['Feature'].values)
+                plt.xlabel('Importance')
+                plt.ylabel('Feature')
+                
+                # NO TITLE - avoid font rendering issues
+                
+                plt.savefig(feature_imp_path)
+                plt.close()
+                
+                print(f"Feature importance chart saved: {feature_imp_path}")
+            
+            # Add additional chart: highlight CREST features
             if hasattr(model, 'feature_importances_'):
                 plt.figure(figsize=(12, 8))
                 
-                # 创建数据框以便于处理
+                # Create DataFrame for easier processing
                 importance_df = pd.DataFrame({
                     'Feature': feature_names,
                     'Importance': model.feature_importances_
                 })
                 
-                # 标记CREST特征
-                importance_df['Is_CREST'] = importance_df['Feature'].apply(
-                    lambda x: 'CREST特征' if 'crest' in str(x).lower() else '其他特征'
-                )
+                # Mark CREST features
+                is_crest = [1 if 'crest' in str(f).lower() else 0 for f in importance_df['Feature']]
+                importance_df['Is_CREST'] = is_crest
                 
-                # 按重要性排序
+                # Sort by importance
                 importance_df = importance_df.sort_values('Importance', ascending=False)
                 
-                # 只取前15个特征
+                # Take only top 15 features
                 plot_df = importance_df.head(15)
                 
-                # 使用seaborn创建彩色条形图
-                ax = sns.barplot(x='Importance', y='Feature', hue='Is_CREST', data=plot_df)
-                plt.title(f'{target_col}特征重要性 (带CREST特征标记)')
-                plt.tight_layout()
+                # Create simple bars with different colors but minimal text
+                y_pos = range(len(plot_df))
+                for i, (_, row) in enumerate(plot_df.iterrows()):
+                    color = 'orange' if row['Is_CREST'] == 1 else 'blue'
+                    plt.barh(i, row['Importance'], color=color)
                 
+                plt.yticks(y_pos, plot_df['Feature'].values)
+                plt.xlabel('Importance')
+                plt.ylabel('Feature')
+                
+                # NO TITLE - avoid font rendering issues
+                
+                # Save chart
                 crest_path = os.path.join(results_dir, f'crest_feature_importance_{target_col}.png')
-                plt.savefig(crest_path, dpi=300, bbox_inches='tight')
+                plt.savefig(crest_path)
                 plt.close()
                 
-                print(f"CREST特征重要性图表已保存: {crest_path}")
-                
-            # 添加文本特征重要性文件以防图像加载失败
+                print(f"CREST feature importance chart saved: {crest_path}")
+            
+            # Add text feature importance file for reference
             if hasattr(model, 'feature_importances_'):
                 txt_path = os.path.join(results_dir, f'feature_importance_{target_col}.txt')
                 with open(txt_path, 'w') as f:
-                    f.write(f"特征重要性分析 - {target_col}\n")
+                    f.write(f"Feature Importance Analysis - {target_col}\n")
                     f.write("="*50 + "\n\n")
                     
                     importance_df = pd.DataFrame({
@@ -1231,16 +1325,16 @@ class ModelAgent:
                         'Importance': model.feature_importances_
                     }).sort_values('Importance', ascending=False)
                     
-                    # 标记CREST特征
+                    # Mark CREST features
                     for i, row in importance_df.iterrows():
-                        is_crest = 'CREST特征' if 'crest' in str(row['Feature']).lower() else ''
+                        is_crest = 'CREST Feature' if 'crest' in str(row['Feature']).lower() else ''
                         f.write(f"{row['Feature']}: {row['Importance']:.6f} {is_crest}\n")
                 
-                print(f"特征重要性文本文件已保存: {txt_path}")
+                print(f"Feature importance text file saved: {txt_path}")
             
             return True
         except Exception as e:
-            print(f"生成可视化时出错: {str(e)}")
+            print(f"Error generating visualizations: {str(e)}")
             import traceback
             traceback.print_exc()
             return False

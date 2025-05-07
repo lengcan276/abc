@@ -5,31 +5,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-import tempfile
+import logging
+import time
 import base64
 from io import BytesIO
 import zipfile
 import shutil
 from PIL import Image
-import logging
-
-# 导入其他页面模块
-from streamlit_ui.Home import load_home_page
-from streamlit_ui.ExtractorPage import load_extractor_page
-from streamlit_ui.FeaturePage import load_feature_page
-from streamlit_ui.ExplorationPage import load_exploration_page
-from streamlit_ui.ModelingPage import load_modeling_page
-from streamlit_ui.ReportPage import load_report_page
-#from streamlit_ui.PaperPage import load_paper_page  # 添加这一行
-
-def dummy_paper_page(*args, **kwargs):
-    import streamlit as st
-    st.title("论文生成功能暂时不可用")
-    st.write("正在维护中，请稍后再试。")
-    
-# 将占位函数赋值给需要的名称
-load_paper_page = dummy_paper_page
-
 
 class UIAgent:
     """
@@ -45,8 +27,8 @@ class UIAgent:
         self.exploration_agent = None
         self.model_agent = None
         self.insight_agent = None
-        self.paper_agent=None
-
+        self.paper_agent = None
+        
     def setup_logging(self):
         """Configure logging for the UI agent."""
         logging.basicConfig(level=logging.INFO, 
@@ -61,15 +43,15 @@ class UIAgent:
         from agents.exploration_agent import ExplorationAgent
         from agents.model_agent import ModelAgent
         from agents.insight_agent import InsightAgent
-        from agents.paper_agent import PaperAgent  # 导入PaperAgent
-
+        from agents.paper_agent import PaperAgent
+        
         self.data_agent = DataAgent()
         self.feature_agent = FeatureAgent()
         self.exploration_agent = ExplorationAgent()
         self.model_agent = ModelAgent()
         self.insight_agent = InsightAgent()
-        self.paper_agent = PaperAgent()  # 初始化PaperAgent
-
+        self.paper_agent = PaperAgent()
+        
         return True
         
     def display_home_page(self):
@@ -94,6 +76,7 @@ class UIAgent:
         - **Exploration**: Analyze S1-T1 gap properties and identify reverse TADF candidates
         - **Modeling**: Build predictive models for S1-T1 gap classification and regression
         - **Insights**: Generate quantum chemistry explanations and design principles
+        - **Paper Writing**: Generate academic paper content based on analysis results
         
         ### Getting Started
         
@@ -104,6 +87,7 @@ class UIAgent:
         3. Use the **Exploration** page to identify reverse TADF candidates
         4. Explore the **Modeling** page to understand predictive model results
         5. Review the **Insights Report** for comprehensive analysis and design principles
+        6. Generate an **Academic Paper** based on your findings
         """)
         
         # Add system architecture diagram
@@ -124,6 +108,8 @@ class UIAgent:
          │   └─Build positive/negative S1-T1 classification or regression model
          ├─> Insight Agent
          │   └─Generate explanations based on feature importance
+         ├─> Paper Agent
+         │   └─Generate academic paper content based on analysis results
          └─> UI Agent (Streamlit)
              └─Display charts + Markdown explanations + Download results
         ```
@@ -300,75 +286,74 @@ class UIAgent:
                     st.subheader("Feature Statistics")
                     st.write(f"Total features: {len(feature_df.columns)}")
                     
-                    # 显示S1-T1能隙统计（如果有）
-                    # 显示S1-T1能隙统计（如果有）
+                    # Display S1-T1 energy gap statistics (if available)
                     if 's1_t1_gap_ev' in feature_df.columns:
                         gap_data = feature_df[feature_df['s1_t1_gap_ev'].notna()]
                         neg_count = (gap_data['s1_t1_gap_ev'] < 0).sum()
                         pos_count = (gap_data['s1_t1_gap_ev'] >= 0).sum()
                         
-                        st.write(f"含有S1-T1能隙数据的分子: {len(gap_data['Molecule'].unique())}")
-                        st.write(f"具有负S1-T1能隙的分子(逆向TADF候选物): {neg_count}")
+                        st.write(f"Molecules with S1-T1 gap data: {len(gap_data['Molecule'].unique())}")
+                        st.write(f"Molecules with negative S1-T1 gap (reverse TADF candidates): {neg_count}")
                         
-                        # 创建S1-T1能隙分布图
+                        # Create S1-T1 gap distribution plot
                         fig, ax = plt.subplots(figsize=(10, 6))
                         sns.histplot(data=gap_data, x='s1_t1_gap_ev', bins=20, kde=True)
                         plt.axvline(x=0, color='red', linestyle='--')
-                        plt.title('S1-T1能隙分布')
-                        plt.xlabel('S1-T1能隙 (eV)')
+                        plt.title('S1-T1 Gap Distribution')
+                        plt.xlabel('S1-T1 Gap (eV)')
                         st.pyplot(fig)
-                        # 保存图表
+                        # Save plot
                         save_path = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/s1_t1_gap_distribution.png"
                         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-                        st.success(f"图表已保存至: {save_path}")
+                        st.success(f"Plot saved to: {save_path}")
                         
-                    # 替代3D特征
-                    st.subheader("替代3D特征示例")
+                    # Alternative 3D features
+                    st.subheader("Alternative 3D Features Examples")
 
-                    # 选择一些有趣的3D特征
+                    # Select some interesting 3D features
                     d3_features = [
                         'estimated_conjugation', 'estimated_polarity', 'electron_withdrawing_effect',
                         'electron_donating_effect', 'planarity_index', 'estimated_hydrophobicity'
                     ]
 
-                    # 筛选数据框中存在的特征
+                    # Filter features existing in the dataframe
                     valid_d3 = [f for f in d3_features if f in feature_df.columns]
 
                     if valid_d3:
-                        # 创建3D特征之间的相关性热图
+                        # Create correlation heatmap of 3D features
                         d3_corr = feature_df[valid_d3].corr()
                         
                         fig, ax = plt.subplots(figsize=(10, 8))
                         sns.heatmap(d3_corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1)
-                        plt.title('3D特征之间的相关性')
+                        plt.title('Correlation Between 3D Features')
                         st.pyplot(fig)
-                        # 保存图表
+                        # Save plot
                         save_path = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/3d_features_correlation.png"
                         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-                        st.success(f"相关性热图已保存至: {save_path}")
+                        st.success(f"Correlation heatmap saved to: {save_path}")
                         
-                        # 显示几个关键特征的分布
-                        st.subheader("特征分布")
+                        # Display distributions of key features
+                        st.subheader("Feature Distributions")
                         
-                        for i, feature in enumerate(valid_d3[:3]):  # 显示前3个特征
+                        for i, feature in enumerate(valid_d3[:3]):  # Show first 3 features
                             fig, ax = plt.subplots(figsize=(8, 5))
                             sns.histplot(data=feature_df, x=feature, kde=True)
-                            plt.title(f'{feature}的分布')
+                            plt.title(f'Distribution of {feature}')
                             st.pyplot(fig)
-                            # 保存图表
+                            # Save plot
                             save_path = f"/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/{feature}_distribution.png"
                             plt.savefig(save_path, dpi=300, bbox_inches='tight')
-                            st.success(f"{feature}分布图已保存至: {save_path}")
+                            st.success(f"{feature} distribution plot saved to: {save_path}")
                         
-                        # 创建特征下载链接
-                        self.create_download_link(result['feature_file'], "下载处理后的特征CSV")
+                        # Create feature download link
+                        self.create_download_link(result['feature_file'], "Download processed features CSV")
                         
-                        # 如果有S1-T1能隙数据，提供导航到探索页的选项
+                        # If S1-T1 gap data is available, provide navigation to exploration page
                         if 's1_t1_gap_ev' in feature_df.columns and neg_count > 0:
-                            st.info("检测到负S1-T1能隙分子。转到'探索'页面分析这些逆向TADF候选物。")
+                            st.info("Negative S1-T1 gap molecules detected. Go to the 'Exploration' page to analyze these reverse TADF candidates.")
                     else:
-                        st.error("特征工程失败。")
-                    
+                        st.error("Feature engineering failed.")
+                        
     def display_exploration_page(self):
         """Display exploration analysis page."""
         st.title("Reverse TADF Exploration")
@@ -391,7 +376,8 @@ class UIAgent:
         # Option to use existing data or upload new
         neg_file = None
         pos_file = None
-        
+        # 在调用 get_negative_s1t1_samples 之前，确保先加载数据
+
         # Look for previously processed data
         extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
         if os.path.exists(extracted_dir):
@@ -432,7 +418,7 @@ class UIAgent:
                     
         else:
             st.warning("No extracted data directory found. Please extract data and run feature engineering first.")
-            
+             
         # Option to upload files
         if not neg_file or not pos_file:
             st.subheader("Upload Gap Data")
@@ -519,6 +505,9 @@ class UIAgent:
             
             if result and 'analysis_results' in result:
                 st.success("Exploration analysis completed.")
+                
+                # Save for paper generation
+                self.exploration_results = result
                 
                 # Display results
                 self.display_exploration_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/exploration')
@@ -689,11 +678,14 @@ class UIAgent:
             if result and ('classification' in result or 'regression' in result):
                 st.success("Modeling analysis completed.")
                 
+                # Save for paper generation
+                self.modeling_results = result
+                
                 # Display results
                 self.display_modeling_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling')
                 
-                # Store modeling results for insight agent
-                self.modeling_results = result
+                # Return modeling results for later use
+                return result
             else:
                 st.error("Modeling analysis failed.")
                 
@@ -857,6 +849,9 @@ class UIAgent:
             if result and 'report' in result:
                 st.success("Insights report generated successfully.")
                 
+                # Save for paper generation
+                self.insight_results = result
+                
                 # Display report
                 with open(result['report'], 'r') as f:
                     report_text = f.read()
@@ -867,7 +862,180 @@ class UIAgent:
                 self.create_download_link(result['report'], "Download insights report")
             else:
                 st.error("Failed to generate insights report.")
+    
+    def display_tuning_page(self):
+        """Display model tuning page."""
+        try:
+            from streamlit_ui.TuningPage import load_tuning_page
+            
+            # Ensure tuning_agent is initialized
+            if not hasattr(self, 'tuning_agent') or self.tuning_agent is None:
+                from agents.tuning_agent import TuningAgent
+                self.tuning_agent = TuningAgent()
+            
+            return load_tuning_page(self.tuning_agent)
+        except Exception as e:
+            st.error(f"加载微调页面时出错: {str(e)}")
+            st.write("这可能是因为PyTorch或其他依赖项配置不正确。请确保已安装所有必要的库。")
+            st.code("pip install torch transformers scikit-learn pandas numpy matplotlib seaborn", language="bash")
+            return None
+        
+    def display_design_page(self):
+        """Display molecular design page."""
+        from streamlit_ui.DesignPage import load_design_page
+        
+        # Ensure design_agent is initialized
+        if not hasattr(self, 'design_agent') or self.design_agent is None:
+            from agents.design_agent import DesignAgent
+            self.design_agent = DesignAgent()
+        
+        # Pass both design_agent and model_agent to the design page
+        if not hasattr(self, 'model_agent') or self.model_agent is None:
+            from agents.model_agent import ModelAgent
+            self.model_agent = ModelAgent()
+            
+        return load_design_page(self.design_agent, self.model_agent)
+    
+    def display_paper_page(self):
+        """Display paper generation page."""
+        st.title("Paper Writing")
+        
+        st.markdown("""
+        ## Academic Paper Generation
+        
+        This page allows you to generate a complete academic paper based on the results from your reverse TADF analysis.
+        
+        The paper will include:
+        
+        1. **Introduction** - Background on reverse TADF and its significance
+        2. **Methods** - Computational approach and analysis techniques
+        3. **Results** - Key findings from exploration and modeling
+        4. **Discussion** - Interpretation of results and design principles
+        5. **Conclusion** - Summary and future directions
+        
+        You can customize various aspects of the paper and download it in multiple formats.
+        """)
+        
+        # Paper information input
+        st.subheader("Paper Information")
+        
+        with st.form("paper_form"):
+            title = st.text_input("Paper Title", "Reverse TADF Molecular Design: Computational Analysis of Inverted Excited State Energy Ordering")
+            
+            authors_input = st.text_input("Authors (separated by commas)", "Author1, Author2, Author3")
+            
+            abstract = st.text_area("Abstract", "This study presents a computational framework for the investigation of reverse thermally activated delayed fluorescence (TADF) materials, where the first excited singlet state (S1) is lower in energy than the first excited triplet state (T1). Through quantum chemical calculations and machine learning analysis, we identify key molecular descriptors that control this unusual energy ordering and propose design principles for developing new reverse TADF candidates.")
+            
+            # Advanced options
+            with st.expander("Advanced Options"):
+                custom_introduction = st.text_area("Custom Introduction", "", height=200)
+                custom_methods = st.text_area("Custom Methods", "", height=200)
+                custom_results = st.text_area("Custom Results", "", height=200)
+                custom_discussion = st.text_area("Custom Discussion", "", height=200)
+                custom_conclusion = st.text_area("Custom Conclusion", "", height=200)
+                custom_references = st.text_area("Custom References", "", height=200)
                 
+            # Output format selection
+            output_format = st.selectbox(
+                "Select Output Format",
+                ["Markdown", "PDF", "Word"]
+            )
+                
+            # GPT-4 extension options
+            use_gpt4 = st.checkbox("Use GPT-4 to Enhance Paper")
+            api_key = st.text_input("OpenAI API Key", type="password") if use_gpt4 else None
+            
+            # Submit button
+            submit_button = st.form_submit_button("Generate Paper")
+        
+        # Generate paper
+        if submit_button:
+            # Prepare input data
+            input_data = {
+                'title': title,
+                'authors': authors_input.split(','),
+                'abstract': abstract
+            }
+            
+            # Add custom content
+            if custom_introduction:
+                input_data['introduction'] = custom_introduction
+            if custom_methods:
+                input_data['methods'] = custom_methods
+            if custom_results:
+                input_data['results'] = custom_results
+            if custom_discussion:
+                input_data['discussion'] = custom_discussion
+            if custom_conclusion:
+                input_data['conclusion'] = custom_conclusion
+            if custom_references:
+                input_data['references'] = custom_references
+                
+            with st.spinner("Generating paper..."):
+                try:
+                    # Initialize paper agent (if not already done)
+                    if self.paper_agent is None:
+                        from agents.paper_agent import PaperAgent
+                        self.paper_agent = PaperAgent()
+                    
+                    # Ensure results are loaded
+                    modeling_results = self.modeling_results if hasattr(self, 'modeling_results') else None
+                    exploration_results = self.exploration_results if hasattr(self, 'exploration_results') else None
+                    insight_results = self.insight_results if hasattr(self, 'insight_results') else None
+                    
+                    self.paper_agent.load_results(
+                        modeling_results=modeling_results,
+                        exploration_results=exploration_results,
+                        insight_results=insight_results
+                    )
+                    
+                    # Run paper generation
+                    result = self.paper_agent.generate_paper(
+                        input_data=input_data,
+                        use_gpt4=use_gpt4,
+                        api_key=api_key,
+                        output_format=output_format
+                    )
+                    
+                    if result and 'paper_path' in result:
+                        st.success("Paper generated successfully!")
+                        
+                        # Try to display paper content
+                        try:
+                            with open(result['paper_path'], 'r') as f:
+                                paper_content = f.read()
+                                
+                            # Create tabs for preview and raw content
+                            tabs = st.tabs(["Preview", "Raw Content"])
+                            
+                            with tabs[0]:
+                                st.markdown(paper_content)
+                                
+                            with tabs[1]:
+                                st.code(paper_content, language="markdown")
+                        except Exception as e:
+                            st.warning(f"Could not display paper preview: {str(e)}")
+                        
+                        # Create download link
+                        self.create_download_link(result['paper_path'], f"Download Paper ({output_format})")
+                    else:
+                        st.error("Failed to generate paper.")
+                
+                except Exception as e:
+                    st.error(f"Error generating paper: {str(e)}")
+        
+        # Display recent papers
+        papers_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/papers'
+        if os.path.exists(papers_dir):
+            paper_files = [f for f in os.listdir(papers_dir) if f.endswith('.md') or f.endswith('.pdf') or f.endswith('.docx')]
+            
+            if paper_files:
+                st.subheader("Recent Papers")
+                
+                for file in paper_files:
+                    paper_path = os.path.join(papers_dir, file)
+                    self.create_download_link(paper_path, f"Download {file}")
+    
     def create_download_link(self, file_path, text):
         """Create a download link for a file."""
         with open(file_path, 'rb') as f:
@@ -913,8 +1081,10 @@ class UIAgent:
             "Feature Engineering": self.display_feature_page,
             "Exploration Analysis": self.display_exploration_page,
             "Predictive Modeling": self.display_modeling_page,
+            "fine tuning": self.display_tuning_page,     # New
+            "reversed TADF molecular design": self.display_design_page,     # New
             "Insights Report": self.display_report_page,
-            "Paper Writing": self.display_paper_page #paper
+            "Paper Writing": self.display_paper_page
         }
         
         # Initialize agents if not done already
@@ -926,401 +1096,5 @@ class UIAgent:
         
         # Display selected page
         pages[selection]()
-
-        # 添加新的页面显示方法
-    def display_paper_page(self):
-        """显示论文生成页面"""
-        st.title("论文生成")
-        
-        st.markdown("""
-        ## 自动化学术论文生成
-        
-        本页面使用反向TADF分析系统的结果自动生成学术论文格式的内容。
-        
-        您可以选择以下输出格式：
-        
-        1. **Markdown** - 生成标准Markdown格式的论文
-        2. **Gatsby网站** - 生成交互式学术论文网站
-        3. **PDF** - 生成格式化的PDF论文文档
-        
-        请确保您已运行探索分析、预测建模和洞察生成步骤，以获得最完整的论文内容。
-        """)
-        
-        # 尝试直接从文件系统加载结果
-        exploration_results = {}
-        modeling_results = {}
-        insight_results = {}
-        
-        # 检查探索结果文件
-        exploration_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/exploration'
-        if os.path.exists(exploration_dir) and len(os.listdir(exploration_dir)) > 0:
-            # 找到各种图表文件
-            image_files = [f for f in os.listdir(exploration_dir) if f.endswith('.png')]
-            
-            # 分类不同类型的图表
-            radar_file = None
-            pca_file = None
-            gap_dist_file = None
-            structure_file = None
-            feature_files = []
-            
-            for file in image_files:
-                full_path = os.path.join(exploration_dir, file)
-                if 'radar' in file:
-                    radar_file = full_path
-                elif 'pca' in file:
-                    pca_file = full_path
-                elif 'gap_distribution' in file:
-                    gap_dist_file = full_path
-                elif 'structural' in file:
-                    structure_file = full_path
-                elif 'comparison' in file and not 'radar' in file:
-                    feature_files.append(full_path)
-            
-            # 构建分析结果字典
-            analysis_results = {}
-            if radar_file:
-                analysis_results['radar_comparison'] = radar_file
-            if pca_file:
-                analysis_results['pca_analysis'] = pca_file
-            if gap_dist_file:
-                analysis_results['gap_distribution'] = gap_dist_file
-            if structure_file:
-                analysis_results['structural_comparison'] = structure_file
-            if feature_files:
-                analysis_results['feature_plots'] = feature_files
-            
-            # 尝试从文件中读取负值分子列表
-            neg_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted/negative_s1t1_samples.csv'
-            neg_molecules = []
-            if os.path.exists(neg_file):
-                try:
-                    neg_df = pd.read_csv(neg_file)
-                    if 'Molecule' in neg_df.columns:
-                        neg_molecules = neg_df['Molecule'].unique().tolist()
-                except Exception as e:
-                    print(f"读取负值分子文件时出错: {e}")
-            
-            # 尝试从探索报告中提取顶级差异特征
-            report_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/reverse_tadf_exploration_report.md'
-            top_diff_features = []
-            if os.path.exists(report_file):
-                try:
-                    with open(report_file, 'r') as f:
-                        report_text = f.read()
-                    import re
-                    feature_section = re.search(r'Key Structural Differences(.*?)\n\n', report_text, re.DOTALL)
-                    if feature_section:
-                        features_text = feature_section.group(1)
-                        # 提取特征名称
-                        feature_matches = re.findall(r'[*•] \*\*(.*?)\*\*:', features_text)
-                        top_diff_features = [f.lower().replace(' ', '_') for f in feature_matches]
-                except Exception as e:
-                    print(f"从报告提取特征时出错: {e}")
-            
-            # 组装完整的探索结果
-            if analysis_results or neg_molecules or top_diff_features:
-                exploration_results = {
-                    'analysis_results': {
-                        **analysis_results,
-                        'neg_molecules': neg_molecules,
-                        'top_diff_features': top_diff_features
-                    }
-                }
-                print(f"从文件系统加载了探索分析结果")
-                # 显示调试信息
-                print(f"- 雷达图: {'Found' if radar_file else 'Not found'}")
-                print(f"- PCA分析: {'Found' if pca_file else 'Not found'}")
-                print(f"- 能隙分布: {'Found' if gap_dist_file else 'Not found'}")
-                print(f"- 负值分子数量: {len(neg_molecules)}")
-        
-        # 检查建模结果文件
-        models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
-        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
-        
-        if os.path.exists(models_dir) and os.path.exists(results_dir):
-            # 检查是否有分类模型
-            clf_file = os.path.join(models_dir, 's1t1_gap_classifier.joblib')
-            if os.path.exists(clf_file):
-                # 查找分类模型相关图像
-                clf_images = []
-                feature_importance = None
-                for file in os.listdir(results_dir):
-                    if ('classification' in file or 'confusion_matrix' in file) and file.endswith('.png'):
-                        clf_images.append(os.path.join(results_dir, file))
-                    if 'feature_ranks_is_negative_gap' in file and file.endswith('.png'):
-                        feature_importance = os.path.join(results_dir, file)
-                
-                # 尝试读取特征列表
-                features_file = os.path.join(models_dir, 's1t1_gap_classifier_features.txt')
-                top_features = []
-                if os.path.exists(features_file):
-                    try:
-                        with open(features_file, 'r') as f:
-                            top_features = [line.strip() for line in f.readlines()]
-                    except Exception as e:
-                        print(f"读取分类特征文件时出错: {e}")
-                
-                # 构建分类结果
-                classification = {
-                    'model_file': clf_file,
-                    'images': clf_images,
-                    'importance': feature_importance,
-                    'features': top_features,
-                    'accuracy': 0.85  # 默认值，实际应该从结果中读取
-                }
-                
-                # 读取结果摘要文件（如果存在）
-                summary_file = os.path.join(results_dir, 'classification_summary.txt')
-                if os.path.exists(summary_file):
-                    try:
-                        with open(summary_file, 'r') as f:
-                            for line in f:
-                                if 'accuracy' in line.lower():
-                                    acc_match = re.search(r'accuracy:\s*(\d+\.\d+)', line, re.IGNORECASE)
-                                    if acc_match:
-                                        classification['accuracy'] = float(acc_match.group(1))
-                    except Exception as e:
-                        print(f"读取分类摘要文件时出错: {e}")
-                
-                modeling_results['classification'] = classification
-                print(f"找到分类模型: {clf_file}")
-                
-            # 检查是否有回归模型
-            reg_file = os.path.join(models_dir, 's1t1_gap_regressor.joblib')
-            if os.path.exists(reg_file):
-                # 查找回归模型相关图像
-                reg_images = []
-                feature_importance = None
-                for file in os.listdir(results_dir):
-                    if 'regression' in file and file.endswith('.png'):
-                        reg_images.append(os.path.join(results_dir, file))
-                    if 'feature_ranks_s1_t1_gap_ev' in file and file.endswith('.png'):
-                        feature_importance = os.path.join(results_dir, file)
-                
-                # 尝试读取特征列表
-                features_file = os.path.join(models_dir, 's1t1_gap_regressor_features.txt')
-                top_features = []
-                if os.path.exists(features_file):
-                    try:
-                        with open(features_file, 'r') as f:
-                            top_features = [line.strip() for line in f.readlines()]
-                    except Exception as e:
-                        print(f"读取回归特征文件时出错: {e}")
-                
-                # 构建回归结果
-                regression = {
-                    'model_file': reg_file,
-                    'images': reg_images,
-                    'importance': feature_importance,
-                    'features': top_features,
-                    'r2': 0.75,  # 默认值，实际应该从结果中读取
-                    'rmse': 0.25  # 默认值，实际应该从结果中读取
-                }
-                
-                # 读取结果摘要文件（如果存在）
-                summary_file = os.path.join(results_dir, 'regression_summary.txt')
-                if os.path.exists(summary_file):
-                    try:
-                        with open(summary_file, 'r') as f:
-                            for line in f:
-                                if 'r2' in line.lower():
-                                    r2_match = re.search(r'r2:\s*(\d+\.\d+)', line, re.IGNORECASE)
-                                    if r2_match:
-                                        regression['r2'] = float(r2_match.group(1))
-                                if 'rmse' in line.lower():
-                                    rmse_match = re.search(r'rmse:\s*(\d+\.\d+)', line, re.IGNORECASE)
-                                    if rmse_match:
-                                        regression['rmse'] = float(rmse_match.group(1))
-                    except Exception as e:
-                        print(f"读取回归摘要文件时出错: {e}")
-                
-                modeling_results['regression'] = regression
-                print(f"找到回归模型: {reg_file}")
-        
-        # 检查洞察报告
-        report_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/reverse_tadf_insights_report.md'
-        if os.path.exists(report_file):
-            # 提取报告中的关键部分
-            try:
-                with open(report_file, 'r') as f:
-                    report_text = f.read()
-                
-                # 提取设计原则和量子化学洞察
-                import re
-                design_section = re.search(r'## Molecular Design Principles(.*?)(?=##|$)', report_text, re.DOTALL)
-                quantum_section = re.search(r'## Quantum Chemistry Insights(.*?)(?=##|$)', report_text, re.DOTALL)
-                
-                design_principles = design_section.group(1).strip() if design_section else ""
-                quantum_insights = quantum_section.group(1).strip() if quantum_section else ""
-                
-                insight_results = {
-                    'report': report_file,
-                    'design_principles': design_principles,
-                    'quantum_insights': quantum_insights
-                }
-                print(f"找到洞察报告: {report_file}")
-            except Exception as e:
-                print(f"读取洞察报告时出错: {e}")
-                insight_results = {'report': report_file}
-        
-        # 论文信息输入
-        st.subheader("论文信息")
-        
-        with st.form("paper_form"):
-            title = st.text_input("论文标题", "反向TADF分子设计: 颠覆激发态能量排序的计算分析")
-            
-            authors_input = st.text_input("作者（用逗号分隔）", "作者1, 作者2, 作者3")
-            
-            abstract = st.text_area("摘要", "本研究提出了一种计算框架，用于研究反向热活化延迟荧光（TADF）材料，其中第一单重态激发态（S1）能量低于第一三重态激发态（T1）。通过量子化学计算和机器学习分析，我们确定了控制这种不寻常能量排序的关键分子描述符，并提出了开发新的反向TADF候选物的设计原则。")
-            
-            # 高级选项
-            with st.expander("高级选项"):
-                custom_introduction = st.text_area("自定义引言", "", height=200)
-                custom_methods = st.text_area("自定义方法", "", height=200)
-                custom_results = st.text_area("自定义结果", "", height=200)
-                custom_discussion = st.text_area("自定义讨论", "", height=200)
-                custom_conclusion = st.text_area("自定义结论", "", height=200)
-                custom_references = st.text_area("自定义参考文献", "", height=200)
-                
-            # 输出格式选择
-            output_format = st.selectbox(
-                "选择输出格式",
-                ["Markdown", "Gatsby网站", "PDF"]
-            )
-                
-            # GPT-4 扩展选项
-            use_gpt4 = st.checkbox("使用GPT-4扩展论文")
-            api_key = st.text_input("OpenAI API密钥", type="password") if use_gpt4 else None
-            
-            # 提交按钮
-            submit_button = st.form_submit_button("生成论文")
-        
-        # 生成论文
-        if submit_button:
-            # 准备输入数据
-            input_data = {
-                'title': title,
-                'abstract': abstract
-            }
-            
-            # 添加自定义内容
-            if custom_introduction:
-                input_data['introduction'] = custom_introduction
-            if custom_methods:
-                input_data['methods'] = custom_methods
-            if custom_results:
-                input_data['results'] = custom_results
-            if custom_discussion:
-                input_data['discussion'] = custom_discussion
-            if custom_conclusion:
-                input_data['conclusion'] = custom_conclusion
-            if custom_references:
-                input_data['references'] = custom_references
-                
-            with st.spinner("正在生成论文..."):
-                try:
-                    # 初始化论文代理（如果尚未初始化）
-                    if self.paper_agent is None:
-                        from agents.paper_agent import PaperAgent
-                        self.paper_agent = PaperAgent(
-                            modeling_results=modeling_results,
-                            exploration_results=exploration_results,
-                            insight_results=insight_results
-                        )
-                    else:
-                        # 确保加载最新结果
-                        self.paper_agent.load_results(
-                            modeling_results=modeling_results,
-                            exploration_results=exploration_results,
-                            insight_results=insight_results
-                        )
-                    
-                    # 运行论文生成
-                    result = self.paper_agent.run_paper_generation(
-                        custom_input=input_data,
-                        use_gpt4=use_gpt4,
-                        api_key=api_key,
-                        output_format=output_format
-                    )
-                    
-                    if result and 'prompt' in result:
-                        prompt_result = result['prompt']
-                        
-                        # 显示生成的提示
-                        st.success("论文提示已生成！")
-                        
-                        # 创建标签页
-                        tabs = st.tabs(["Markdown预览", "原始内容"])
-                        
-                        with tabs[0]:
-                            st.markdown(prompt_result['content'])
-                            
-                        with tabs[1]:
-                            st.code(prompt_result['content'], language="markdown")
-                        
-                        # 创建下载链接
-                        self.create_download_link(prompt_result['path'], "下载论文提示")
-                        
-                        # 如果使用了GPT-4，显示完整论文
-                        if use_gpt4 and 'full_paper' in result and result['full_paper']:
-                            full_paper = result['full_paper']
-                            
-                            st.success("GPT-4完整论文已生成！")
-                            
-                            # 创建标签页
-                            gpt_tabs = st.tabs(["完整论文预览", "原始内容"])
-                            
-                            with gpt_tabs[0]:
-                                st.markdown(full_paper['content'])
-                                
-                            with gpt_tabs[1]:
-                                st.code(full_paper['content'], language="markdown")
-                            
-                            # 创建下载链接
-                            self.create_download_link(full_paper['path'], "下载GPT-4生成的完整论文")
-                        
-                        # 如果生成了Gatsby网站，提供下载链接
-                        if output_format == "Gatsby网站" and 'gatsby_site' in result and result['gatsby_site']:
-                            gatsby_site = result['gatsby_site']
-                            
-                            st.success("Gatsby论文网站已生成！")
-                            
-                            # 创建下载链接
-                            self.create_download_zip(gatsby_site['path'], "下载Gatsby论文网站")
-                        
-                        # 如果生成了PDF，提供下载链接
-                        if output_format == "PDF" and 'pdf' in result and result['pdf']:
-                            pdf_file = result['pdf']
-                            
-                            st.success("PDF论文已生成！")
-                            
-                            # 创建下载链接
-                            self.create_download_link(pdf_file['path'], "下载PDF论文")
-                    
-                except Exception as e:
-                    st.error(f"生成论文时出错: {str(e)}")
-        
-        # 展示使用说明
-        with st.expander("使用指南"):
-            st.markdown("""
-            ### 如何使用生成的论文
-            
-            1. **Markdown格式**
-                - 下载生成的Markdown文件
-                - 可以使用任何支持Markdown的编辑器进一步编辑
-                - 可以转换为Word、PDF或其他格式
-                
-            2. **Gatsby网站**
-                - 下载生成的Gatsby网站
-                - 解压后可以使用Node.js环境运行
-                - 可以部署到任何静态网站托管平台
-                
-            3. **PDF格式**
-                - 直接下载生成的PDF文件
-                - 可以使用PDF编辑器进一步编辑
-                
-            4. **GPT-4扩展**
-                - 使用GPT-4扩展选项可以获得更加详细的论文内容
-                - 需要提供有效的OpenAI API密钥
-            """)
+    
+   

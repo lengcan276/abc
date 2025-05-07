@@ -12,184 +12,184 @@ from io import BytesIO
 import zipfile
 
 def render_modeling_page(model_agent=None):
-    """渲染建模分析页面"""
-    st.title("预测建模")
+    """Render modeling analysis page"""
+    st.title("Predictive Modeling")
     
     st.markdown("""
-    ## S1-T1 能隙预测建模
+    ## S1-T1 Gap Predictive Modeling
     
-    本页面专注于构建和评估 S1-T1 能隙属性的预测模型。
+    This page focuses on building and evaluating predictive models for S1-T1 gap properties.
     
-    构建了两种主要模型：
+    Two main models are built:
     
-    1. **分类模型** - 预测分子是否具有负值或正值 S1-T1 能隙
-    2. **回归模型** - 预测 S1-T1 能隙的实际值
+    1. **Classification Model** - Predicts whether a molecule will have a negative or positive S1-T1 gap
+    2. **Regression Model** - Predicts the actual value of the S1-T1 gap
     
-    分析包括：
+    The analysis includes:
     
-    - 特征选择和重要性排名
-    - 模型性能评估
-    - 特征工程洞察
-    - 预测可视化
+    - Feature selection and importance ranking
+    - Model performance evaluation
+    - Feature engineering insights
+    - Prediction visualization
     
-    您可以在先前生成的特征数据上运行建模流程，或上传特征 CSV 文件。
+    You can run the modeling pipeline on previously generated feature data or upload a feature CSV file.
     """)
     
-    # 使用现有数据或上传新数据的选项
+    # Option to use existing data or upload new
     feature_file = None
     
-    # 查找先前处理的数据
-    extracted_dir = '../data/extracted'
+    # Look for previously processed data
+    extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
     if os.path.exists(extracted_dir):
-        # 查找处理过的特征文件
+        # Look for processed features file
         feature_files = [f for f in os.listdir(extracted_dir) if ('feature' in f.lower() or 'processed' in f.lower()) and f.endswith('.csv')]
         
         if feature_files:
-            st.info("找到现有特征文件。")
-            selected_file = st.selectbox("选择用于建模的特征文件", feature_files)
+            st.info("Found existing feature files.")
+            selected_file = st.selectbox("Select feature file for modeling", feature_files)
             feature_file = os.path.join(extracted_dir, selected_file)
         else:
-            st.warning("未找到特征文件。请先运行特征工程。")
+            st.warning("No feature files found. Please run feature engineering first.")
     else:
-        st.warning("未找到提取的数据目录。请先提取数据并运行特征工程。")
+        st.warning("No extracted data directory found. Please extract data and run feature engineering first.")
         
-    # 上传文件选项
+    # Upload file option
     if not feature_file:
-        st.subheader("上传特征数据")
+        st.subheader("Upload Feature Data")
         
-        feature_upload = st.file_uploader("上传处理后的特征 CSV", type="csv")
+        feature_upload = st.file_uploader("Upload processed features CSV", type="csv")
         
         if feature_upload:
-            # 将上传的 CSV 保存到临时位置
+            # Save uploaded CSV to temp location
             with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as temp_file:
                 temp_file.write(feature_upload.getvalue())
                 feature_file = temp_file.name
                 
-    # 执行建模
+    # Execute modeling
     if feature_file:
-        # 检查是否存在预计算结果
-        results_dir = '../data/reports/modeling'
-        models_dir = '../data/models'
+        # Check if pre-computed results exist
+        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+        models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
         
         if os.path.exists(results_dir) and os.path.exists(models_dir) and \
            len(os.listdir(results_dir)) > 0 and len(os.listdir(models_dir)) > 0:
-            st.info("找到现有的建模结果。")
+            st.info("Found existing modeling results.")
             
-            if st.button("显示建模结果"):
+            if st.button("Show Modeling Results"):
                 display_modeling_results(results_dir)
                 
-            if st.button("重新运行建模"):
+            if st.button("Re-run Modeling"):
                 run_modeling_analysis(feature_file, model_agent)
         else:
-            if st.button("运行建模分析"):
+            if st.button("Run Modeling Analysis"):
                 run_modeling_analysis(feature_file, model_agent)
                 
     return None
 
 def run_modeling_analysis(feature_file, model_agent):
-    """运行建模分析并显示结果"""
-    with st.spinner("正在运行建模分析..."):
+    """Run modeling analysis and display results"""
+    with st.spinner("Running modeling analysis..."):
         try:
-            # 执行建模分析
+            # Execute modeling analysis
             if model_agent:
                 model_agent.feature_file = feature_file
                 result = model_agent.run_modeling_pipeline()
                 
                 if result and ('classification' in result or 'regression' in result):
-                    st.success("建模分析完成。")
+                    st.success("Modeling analysis completed.")
                     
-                    # 显示结果
-                    display_modeling_results('../data/reports/modeling')
+                    # Display results
+                    display_modeling_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling')
                     
-                    # 返回建模结果
+                    # Return modeling results
                     return result
                 else:
-                    st.error("建模分析失败")
+                    st.error("Modeling analysis failed")
             else:
-                st.error("建模组件未初始化")
+                st.error("Modeling component not initialized")
         except Exception as e:
-            st.error(f"建模分析过程中出错: {str(e)}")
+            st.error(f"Error during modeling analysis: {str(e)}")
             
     return None
 
 def display_modeling_results(results_dir):
-    """显示建模分析结果"""
-    st.subheader("建模分析结果")
+    """Display modeling analysis results"""
+    st.subheader("Modeling Analysis Results")
     
-    # 检查结果目录是否存在
+    # Check if results directory exists
     if not os.path.exists(results_dir):
-        st.error(f"结果目录 {results_dir} 未找到。")
+        st.error(f"Results directory {results_dir} not found.")
         return
         
-    # 查找结果目录中的所有图像文件
+    # Find all image files in the results directory
     image_files = [f for f in os.listdir(results_dir) if f.endswith('.png')]
     
     if not image_files:
-        st.warning("未找到结果图像。")
+        st.warning("No result images found.")
         return
         
-    # 按类型分组图像
+    # Group images by type
     classification_images = [f for f in image_files if 'classification' in f or 'confusion_matrix' in f]
     regression_images = [f for f in image_files if 'regression' in f]
     feature_rank_images = [f for f in image_files if 'feature_ranks' in f]
     
-    # 创建分类和回归的选项卡
-    tabs = st.tabs(["分类模型", "回归模型", "特征选择"])
+    # Create tabs for classification and regression
+    tabs = st.tabs(["Classification Model", "Regression Model", "Feature Selection"])
     
-    # 分类选项卡
+    # Classification tab
     with tabs[0]:
-        st.markdown("### 分类模型结果")
+        st.markdown("### Classification Model Results")
         
         if classification_images:
             for file in classification_images:
                 img = Image.open(os.path.join(results_dir, file))
                 caption = file.replace('.png', '').replace('_', ' ').title()
-                st.image(img, caption=caption, use_column_width=True)
+                st.image(img, caption=caption, use_container_width=True)
         else:
-            st.warning("未找到分类模型结果。")
+            st.warning("No classification model results found.")
             
-    # 回归选项卡
+    # Regression tab
     with tabs[1]:
-        st.markdown("### 回归模型结果")
+        st.markdown("### Regression Model Results")
         
         if regression_images:
             for file in regression_images:
                 img = Image.open(os.path.join(results_dir, file))
                 caption = file.replace('.png', '').replace('_', ' ').title()
-                st.image(img, caption=caption, use_column_width=True)
+                st.image(img, caption=caption, use_container_width=True)
         else:
-            st.warning("未找到回归模型结果。")
+            st.warning("No regression model results found.")
             
-    # 特征选择选项卡
+    # Feature selection tab
     with tabs[2]:
-        st.markdown("### 特征选择结果")
+        st.markdown("### Feature Selection Results")
         
         if feature_rank_images:
             for file in feature_rank_images:
                 img = Image.open(os.path.join(results_dir, file))
                 target = file.replace('feature_ranks_', '').replace('.png', '')
-                st.markdown(f"#### {target} 的特征重要性")
-                st.image(img, use_column_width=True)
+                st.markdown(f"#### Feature Importance for {target}")
+                st.image(img, use_container_width=True)
         else:
-            st.warning("未找到特征选择结果。")
+            st.warning("No feature selection results found.")
             
-    # 检查模型文件
-    models_dir = '../data/models'
+    # Check for model files
+    models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
     if os.path.exists(models_dir):
         model_files = [f for f in os.listdir(models_dir) if f.endswith('.joblib') or f.endswith('.pkl')]
         
         if model_files:
-            st.subheader("训练好的模型")
+            st.subheader("Trained Models")
             
             for file in model_files:
                 model_path = os.path.join(models_dir, file)
-                create_download_link(model_path, f"下载 {file}")
+                create_download_link(model_path, f"Download {file}")
                 
-    # 创建所有结果的下载链接
-    create_download_zip(results_dir, "下载所有建模结果")
+    # Create download link for all results
+    create_download_zip(results_dir, "Download all modeling results")
 
 def create_download_link(file_path, text):
-    """创建文件下载链接"""
+    """Create a download link for a file"""
     with open(file_path, 'rb') as f:
         data = f.read()
         
@@ -200,33 +200,33 @@ def create_download_link(file_path, text):
     st.markdown(href, unsafe_allow_html=True)
     
 def create_download_zip(directory, text):
-    """创建目录中所有文件的 ZIP 下载链接"""
-    # 创建 BytesIO 对象
+    """Create a ZIP download link for all files in a directory"""
+    # Create a BytesIO object
     zip_buffer = BytesIO()
     
-    # 在 BytesIO 对象中创建 ZIP 文件
+    # Create a ZIP file in the BytesIO object
     with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
         for root, dirs, files in os.walk(directory):
             for file in files:
                 file_path = os.path.join(root, file)
                 zip_file.write(file_path, os.path.basename(file_path))
                 
-    # 将缓冲区位置重置到开头
+    # Reset the buffer position to the beginning
     zip_buffer.seek(0)
     
-    # 编码为 base64
+    # Encode as base64
     b64 = base64.b64encode(zip_buffer.read()).decode()
     
-    # 获取目录名作为 ZIP 文件名
+    # Get the directory name for the ZIP filename
     zip_filename = os.path.basename(directory) + "_results.zip"
     
     href = f'<a href="data:application/zip;base64,{b64}" download="{zip_filename}">{text}</a>'
     st.markdown(href, unsafe_allow_html=True)
     
 def load_modeling_page(model_agent=None):
-    """加载建模页面"""
+    """Load the modeling page"""
     return render_modeling_page(model_agent)
 
 if __name__ == "__main__":
-    # 用于直接运行测试
+    # For direct testing
     load_modeling_page()

@@ -6,6 +6,7 @@ import numpy as np
 from glob import glob
 import logging
 from tqdm import tqdm
+import time
 
 class DataAgent:
     """
@@ -138,12 +139,27 @@ class DataAgent:
                 # Extract all occupied orbital energies
                 occ_energies = []
                 for match in alpha_occ_matches:
-                    occ_energies.extend([float(x) for x in match.split()])
+                    # Fix: Add proper handling for values without spaces
+                    match = match.strip()
+                    # If the match contains values without spaces (like "-101.53533-101.53528")
+                    if '-' in match[1:]:  # Check if there are negative signs after the first character
+                        # Split the string into chunks that start with a negative sign
+                        values = re.findall(r'-?\d+\.\d+', match)
+                        occ_energies.extend([float(x) for x in values])
+                    else:
+                        # Normal case with proper spacing
+                        occ_energies.extend([float(x) for x in match.split()])
 
                 # Extract all virtual orbital energies
                 virt_energies = []
                 for match in alpha_virt_matches:
-                    virt_energies.extend([float(x) for x in match.split()])
+                    # Apply the same fix to virtual orbitals
+                    match = match.strip()
+                    if '-' in match[1:]:
+                        values = re.findall(r'-?\d+\.\d+', match)
+                        virt_energies.extend([float(x) for x in values])
+                    else:
+                        virt_energies.extend([float(x) for x in match.split()])
 
                 if occ_energies and virt_energies:
                     homo = occ_energies[-1]  # Last occupied orbital
@@ -174,7 +190,7 @@ class DataAgent:
                 return homo, lumo
 
         except Exception as e:
-            self.logger.error(f"Error extracting HOMO-LUMO values {log_file}: {e}")
+            self.logger.error(f"Error extracting HOMO-LUMO values {log_file}: {str(e)}")
 
         return None, None
     
@@ -334,8 +350,23 @@ class DataAgent:
         lowest_energy = float('inf')
         lowest_conf = None
 
-        # 导入结构分析工具
-        from utils.structure_utils import StructureUtils
+        # Import structure utils - surrounded by try/except to handle potential import errors
+        try:
+            from utils.structure_utils import StructureUtils
+        except ImportError as e:
+            self.logger.error(f"Error importing StructureUtils: {str(e)}")
+            # Create a simple placeholder if the import fails
+            class SimpleStructureUtils:
+                @staticmethod
+                def load_molecule_from_gaussian(*args, **kwargs):
+                    return None
+                @staticmethod
+                def calculate_structure_features(*args, **kwargs):
+                    return {}
+                @staticmethod
+                def compare_structures(*args, **kwargs):
+                    return {}
+            StructureUtils = SimpleStructureUtils
 
         # First scan to find lowest energy conformer
         for conf in conformers:
@@ -399,21 +430,42 @@ class DataAgent:
                     'avg_charge': charges['avg_charge']
                 })
 
-            # 提取分子结构特征
-            # 查找对应的XYZ文件路径
+            # Extract molecular structure features - handle file errors gracefully
             crest_xyz = os.path.join(molecule_dir, 'results', f'{state}_{conf}.xyz')
             if not os.path.exists(crest_xyz):
+                # Handle missing CREST file without printing error
                 crest_xyz = None
+                # 尝试 results 目录中的文件
+                results_xyz = os.path.join(molecule_dir, 'results', f'{state}_{conf}.xyz')
+                if os.path.exists(results_xyz):
+                    crest_xyz = results_xyz
+                # 尝试 state 目录中的 crest_best.xyz
+                state_crest_best = os.path.join(molecule_dir, state, 'crest_best.xyz')
+                if os.path.exists(state_crest_best):
+                    crest_xyz = state_crest_best
+                # 尝试 state/crest 目录
+                state_crest_dir = os.path.join(molecule_dir, state, 'crest')
+                if os.path.exists(state_crest_dir):
+                    possible_files = glob.glob(os.path.join(state_crest_dir, "*.xyz"))
+                    if possible_files:
+                        crest_xyz = possible_files[0]  # 使用找到的第一个 XYZ 文件
                 
-            # 加载分子结构（优先从Gaussian结果提取，失败则尝试CREST结构）
-            mol = StructureUtils.load_molecule_from_gaussian(log_file, 
+            # Load molecule structure (prioritize Gaussian results, fallback to CREST structure)
+            try:
+                mol = StructureUtils.load_molecule_from_gaussian(log_file, 
                                                             fallback_to_crest=True, 
                                                             crest_xyz_file=crest_xyz)
+            except Exception as e:
+                self.logger.debug(f"Error loading molecule structure: {str(e)}")
+                mol = None
             
-            # 如果成功加载了分子结构，计算结构特征
+            # Calculate structure features if molecule was loaded successfully
             if mol:
-                structure_features = StructureUtils.calculate_structure_features(mol)
-                conf_data.update(structure_features)
+                try:
+                    structure_features = StructureUtils.calculate_structure_features(mol)
+                    conf_data.update(structure_features)
+                except Exception as e:
+                    self.logger.debug(f"Error calculating structure features: {str(e)}")
             else:
                 self.logger.debug(f"Could not load molecular structure for {molecule_dir}/{state}/{conf}")
 
@@ -449,62 +501,70 @@ class DataAgent:
                     if t1_energy is not None:
                         conf_data['t1_energy_ev'] = t1_energy
 
-                    # Calculate S1-T1 gap - 确保使用正确的命名
+                    # Calculate S1-T1 gap
                     if s1_energy is not None and t1_energy is not None:
                         conf_data['s1_t1_gap_ev'] = s1_energy - t1_energy
-                        # 添加这行作为备用，以防系统查找其他变量名
+                        # Add this line as a backup, in case the system looks for other variable names
                         conf_data['s1_t1_gap'] = s1_energy - t1_energy
 
                     # Calculate excitation energy directly from energy difference
                     if excited_energy is not None and energy is not None:
                         conf_data['excitation_energy_ev'] = (excited_energy - energy) * 27.2114
                     
-                    # 如果可能，还可以分析激发态结构
-                    excited_mol = StructureUtils.load_molecule_from_gaussian(excited_log, fallback_to_crest=False)
-                    if excited_mol:
-                        excited_features = StructureUtils.calculate_structure_features(excited_mol)
-                        # 添加前缀区分激发态结构特征
-                        excited_structure = {f'excited_{k}': v for k, v in excited_features.items()}
-                        conf_data.update(excited_structure)
-                        
-                        # 计算基态与激发态结构变化
-                        if mol:
-                            structure_changes = StructureUtils.compare_structures(mol, excited_mol)
-                            conf_data.update(structure_changes)
-                        
-            # 对于中性状态下三重态能隙的处理
+                    # Analyze excited state structure if possible
+                    try:
+                        excited_mol = StructureUtils.load_molecule_from_gaussian(excited_log, fallback_to_crest=False)
+                        if excited_mol:
+                            excited_features = StructureUtils.calculate_structure_features(excited_mol)
+                            # Add prefix to distinguish excited state structure features
+                            excited_structure = {f'excited_{k}': v for k, v in excited_features.items()}
+                            conf_data.update(excited_structure)
+                            
+                            # Calculate changes between ground state and excited state structures
+                            if mol:
+                                structure_changes = StructureUtils.compare_structures(mol, excited_mol)
+                                conf_data.update(structure_changes)
+                    except Exception as e:
+                        self.logger.debug(f"Error processing excited state structure: {str(e)}")
+                    
+            # For neutral state with triplet data
             if state == 'neutral' and 'triplet' in os.listdir(molecule_dir):
                 triplet_path = os.path.join(molecule_dir, 'triplet', 'gaussian', conf)
                 if os.path.exists(triplet_path):
                     triplet_log = os.path.join(triplet_path, 'ground.log')
                     if os.path.exists(triplet_log):
                         triplet_energy = self.extract_energy(triplet_log)
-                        # 如果能够提取到三重态能量，计算另一种S1-T1能隙
+                        # Calculate S1-T1 gap if triplet energy is available
                         if triplet_energy is not None and energy is not None:
                             t_s0_gap_ev = (triplet_energy - energy) * 27.2114
                             conf_data['triplet_gap_ev'] = t_s0_gap_ev
-                            # 同时复制到s1_t1_gap_ev变量，确保系统可以找到
+                            # Also copy to s1_t1_gap_ev variable if not already present
                             if 's1_t1_gap_ev' not in conf_data or conf_data['s1_t1_gap_ev'] is None:
-                                # 只有在没有通过TD-DFT计算得到s1_t1_gap_ev时才使用这个值
+                                # Only use this value if not already calculated via TD-DFT
                                 conf_data['s1_t1_gap_ev'] = t_s0_gap_ev
                                 conf_data['s1_t1_gap'] = t_s0_gap_ev
                         
-                        # 提取三重态结构特征
-                        triplet_mol = StructureUtils.load_molecule_from_gaussian(triplet_log, fallback_to_crest=False)
-                        if triplet_mol:
-                            triplet_features = StructureUtils.calculate_structure_features(triplet_mol)
-                            # 添加前缀区分三重态结构特征
-                            triplet_structure = {f'triplet_{k}': v for k, v in triplet_features.items()}
-                            conf_data.update(triplet_structure)
-                            
-                            # 计算基态与三重态结构变化
-                            if mol:
-                                triplet_changes = StructureUtils.compare_structures(mol, triplet_mol)
-                                # 添加前缀区分
-                                triplet_changes = {f'triplet_{k}': v for k, v in triplet_changes.items()}
-                                conf_data.update(triplet_changes)
+                        # Extract triplet state structure features with error handling
+                        try:
+                            triplet_mol = StructureUtils.load_molecule_from_gaussian(triplet_log, fallback_to_crest=False)
+                            if triplet_mol:
+                                triplet_features = StructureUtils.calculate_structure_features(triplet_mol)
+                                # Add prefix to distinguish triplet state structure features
+                                triplet_structure = {f'triplet_{k}': v for k, v in triplet_features.items()}
+                                conf_data.update(triplet_structure)
+                                
+                                # Calculate changes between ground state and triplet state structures
+                                if mol:
+                                    triplet_changes = StructureUtils.compare_structures(mol, triplet_mol)
+                                    # Add prefix to distinguish triplet state changes
+                                    triplet_changes = {f'triplet_{k}': v for k, v in triplet_changes.items()}
+                                    conf_data.update(triplet_changes)
+                        except Exception as e:
+                            self.logger.debug(f"Error processing triplet state structure: {str(e)}")
                 
             all_conf_data.append(conf_data)
+
+        return all_conf_data
 
         return all_conf_data
     def process_molecules(self):
@@ -526,73 +586,93 @@ class DataAgent:
         all_conformers_data = []
         processed_count = 0
         error_count = 0
+        error_molecules = []
 
-        # Process each molecule directory
-        for molecule in tqdm(molecule_dirs, desc="Processing molecules"):
-            try:
-                print(f"Processing molecule: {molecule}")
-                molecule_path = os.path.join(parent_dir, molecule)
+        # Create a more detailed error log file
+        error_log_path = os.path.join(parent_dir, "error_log_details.txt")
+        with open(error_log_path, "w") as error_log:
+            error_log.write(f"DataAgent Processing Errors - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            error_log.write("="*80 + "\n\n")
 
-                # 跳过已知问题的分子（如含BH2基团）
-                problematic_atoms = ['bh2']
-                if any(atom in molecule.lower() for atom in problematic_atoms):
-                    print(f"  Skipping molecule {molecule} with problematic atoms")
-                    error_count += 1
-                    continue
+            # Process each molecule directory
+            for molecule in tqdm(molecule_dirs, desc="Processing molecules"):
+                try:
+                    print(f"Processing molecule: {molecule}")
+                    molecule_path = os.path.join(parent_dir, molecule)
 
-                # Extract CREST results
-                crest_results = {}
-                for state in ['cation', 'neutral', 'triplet']:
-                    results_file = os.path.join(molecule_path, 'results', f'{state}_results.txt')
-                    crest_data = self.extract_crest_results(results_file)
-                    if crest_data:
-                        crest_results[state] = crest_data
-                        print(f"  Extracted {molecule}/{state} CREST results")
+                    # Skip molecules with known problematic atoms (like BH2)
+                    problematic_atoms = ['bh2']
+                    if any(atom in molecule.lower() for atom in problematic_atoms):
+                        print(f"  Skipping molecule {molecule} with problematic atoms")
+                        error_log.write(f"SKIPPED: {molecule} - Contains problematic atoms\n\n")
+                        error_count += 1
+                        error_molecules.append(molecule)
+                        continue
 
-                # Extract all conformers for each state
-                mol_has_valid_data = False
-                for state in ['neutral', 'cation', 'triplet']:
-                    try:
-                        conformers_data = self.extract_all_conformers(molecule_path, state)
-                    except Exception as e:
-                        print(f"  Error processing {molecule}/{state}: {e}")
-                        conformers_data = []
+                    # Extract CREST results
+                    crest_results = {}
+                    for state in ['cation', 'neutral', 'triplet']:
+                        results_file = os.path.join(molecule_path, 'results', f'{state}_results.txt')
+                        crest_data = self.extract_crest_results(results_file)
+                        if crest_data:
+                            crest_results[state] = crest_data
+                            print(f"  Extracted {molecule}/{state} CREST results")
 
-                    if conformers_data:
-                        print(f"  Extracted {len(conformers_data)} conformers for {molecule}/{state}")
-                        mol_has_valid_data = True
+                    # Extract all conformers for each state
+                    mol_has_valid_data = False
+                    for state in ['neutral', 'cation', 'triplet']:
+                        try:
+                            conformers_data = self.extract_all_conformers(molecule_path, state)
+                        except Exception as e:
+                            error_msg = f"  Error processing {molecule}/{state}: {e}"
+                            print(error_msg)
+                            error_log.write(f"ERROR: {molecule}/{state}\n")
+                            error_log.write(f"Exception: {str(e)}\n")
+                            error_log.write(f"Traceback: {traceback.format_exc()}\n\n")
+                            conformers_data = []
 
-                        # Add molecule name and state info to each conformer
-                        for conf_data in conformers_data:
-                            conf_data['Molecule'] = molecule
-                            conf_data['State'] = state
+                        if conformers_data:
+                            print(f"  Extracted {len(conformers_data)} conformers for {molecule}/{state}")
+                            mol_has_valid_data = True
 
-                            # Add CREST data (if available)
-                            if state in crest_results:
-                                conf_name = conf_data['conformer']
-                                conf_data['crest_num_conformers'] = crest_results[state]['num_conformers']
-                                conf_data['crest_energy_range'] = crest_results[state]['energy_range']
-                                conf_data['crest_total_energy'] = crest_results[state]['total_energy']
+                            # Add molecule name and state info to each conformer
+                            for conf_data in conformers_data:
+                                conf_data['Molecule'] = molecule
+                                conf_data['State'] = state
 
-                                # If current conformer has energy and distribution data in CREST results, add them
-                                if conf_name in crest_results[state]['conformer_energies']:
-                                    conf_data['crest_energy'] = crest_results[state]['conformer_energies'][conf_name]
-                                    conf_data['crest_population'] = crest_results[state]['conformer_populations'][conf_name]
+                                # Add CREST data (if available)
+                                if state in crest_results:
+                                    conf_name = conf_data['conformer']
+                                    conf_data['crest_num_conformers'] = crest_results[state]['num_conformers']
+                                    conf_data['crest_energy_range'] = crest_results[state]['energy_range']
+                                    conf_data['crest_total_energy'] = crest_results[state]['total_energy']
 
-                            # Add to total dataset
-                            all_conformers_data.append(conf_data)
+                                    # If current conformer has energy and distribution data in CREST results, add them
+                                    if conf_name in crest_results[state]['conformer_energies']:
+                                        conf_data['crest_energy'] = crest_results[state]['conformer_energies'][conf_name]
+                                        conf_data['crest_population'] = crest_results[state]['conformer_populations'][conf_name]
+
+                                # Add to total dataset
+                                all_conformers_data.append(conf_data)
                 
-                if mol_has_valid_data:
-                    processed_count += 1
-                else:
+                    if mol_has_valid_data:
+                        processed_count += 1
+                    else:
+                        error_count += 1
+                        error_molecules.append(molecule)
+                        error_log.write(f"ERROR: {molecule} - No valid data extracted\n\n")
+                
+                except Exception as e:
                     error_count += 1
-            
-            except Exception as e:
-                error_count += 1
-                self.logger.error(f"Error processing molecule {molecule}: {e}")
-                print(f"  Error processing molecule {molecule}: {e}")
-                # 继续处理下一个分子
-                continue
+                    error_molecules.append(molecule)
+                    error_msg = f"Error processing molecule {molecule}: {e}"
+                    self.logger.error(error_msg)
+                    print(f"  {error_msg}")
+                    error_log.write(f"CRITICAL ERROR: {molecule}\n")
+                    error_log.write(f"Exception: {str(e)}\n")
+                    error_log.write(f"Traceback: {traceback.format_exc()}\n\n")
+                    # Continue processing next molecule
+                    continue
 
         # Create DataFrame and save to CSV
         if all_conformers_data:
@@ -606,10 +686,26 @@ class DataAgent:
             df.to_csv(all_conf_file, index=False)
             print(f"All conformer data saved to {all_conf_file}")
             
+            # Write error summary
+            error_summary_path = os.path.join(output_dir, "processing_errors.txt")
+            with open(error_summary_path, "w") as f:
+                f.write(f"Processing Summary - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*80 + "\n\n")
+                f.write(f"Total molecules: {len(molecule_dirs)}\n")
+                f.write(f"Successfully processed: {processed_count}\n")
+                f.write(f"Failed to process: {error_count}\n\n")
+                if error_molecules:
+                    f.write("Failed molecules:\n")
+                    for mol in error_molecules:
+                        f.write(f"- {mol}\n")
+                    f.write("\nSee error_log_details.txt for detailed error information.\n")
+            
             # Create molecule summary table (taking lowest energy conformer for each molecule)
             self.create_molecule_summary(df, output_dir)
             
             print(f"Successfully processed {processed_count} molecules with {error_count} errors.")
+            print(f"Error details saved to {error_log_path}")
+            print(f"Error summary saved to {error_summary_path}")
             return all_conf_file
         else:
             print(f"No molecule data found. Processed {processed_count} molecules with {error_count} errors.")
