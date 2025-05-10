@@ -28,7 +28,7 @@ class FeatureAgent:
         """Configure logging for the feature agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/logs/feature_agent.log')
+                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/feature_agent.log')
         self.logger = logging.getLogger('FeatureAgent')
         
     def load_data(self, file_path=None):
@@ -612,7 +612,7 @@ class FeatureAgent:
         self.feature_df = feature_df
         
         # 保存处理后的特征
-        output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+        output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
         os.makedirs(output_dir, exist_ok=True)
         features_file = os.path.join(output_dir, "processed_features.csv")
         feature_df.to_csv(features_file, index=False)
@@ -642,7 +642,7 @@ class FeatureAgent:
                 break
         
         # 保存原始数据的副本，用于调试
-        self.feature_df.to_csv('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted/original_feature_df.csv', index=False)
+        self.feature_df.to_csv('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/original_feature_df.csv', index=False)
         print(f"原始数据形状: {self.feature_df.shape}")
         print(f"列名: {self.feature_df.columns.tolist()}")
         
@@ -702,7 +702,7 @@ class FeatureAgent:
                 positive_gap['gap_type'] = 'Positive'
                 
                 # 确保输出目录存在
-                output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+                output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
                 os.makedirs(output_dir, exist_ok=True)
                 
                 # 保存处理后的样本
@@ -785,7 +785,7 @@ class FeatureAgent:
                 example_df.loc[i, 'gap_type'] = 'Positive'
         
         # 确保输出目录存在
-        output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+        output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
         os.makedirs(output_dir, exist_ok=True)
         
         # 保存示例数据

@@ -36,7 +36,7 @@ class ModelAgent:
         """Configure logging for the model agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/logs/model_agent.log')
+                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/model_agent.log')
         self.logger = logging.getLogger('ModelAgent')
         
     def load_data(self, file_path=None):
@@ -373,7 +373,7 @@ class ModelAgent:
         self.selected_features[target_col] = final_features
         
         # Create results directory
-        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
         os.makedirs(results_dir, exist_ok=True)
         
         # Visualize feature importance with CREST features highlighted
@@ -454,7 +454,7 @@ class ModelAgent:
         selected_features = feature_results['features']
         
         # Create results directory
-        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
         os.makedirs(results_dir, exist_ok=True)
         
         # Prepare data for modeling
@@ -527,7 +527,7 @@ class ModelAgent:
         plt.close()
         
         # Store model and results
-        model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
+        model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
         os.makedirs(model_dir, exist_ok=True)
         
         model_file = os.path.join(model_dir, 's1t1_gap_classifier.joblib')
@@ -591,7 +591,7 @@ class ModelAgent:
         selected_features = feature_results['features']
         
         # Create results directory
-        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
         os.makedirs(results_dir, exist_ok=True)
         
         # Prepare data for modeling
@@ -675,7 +675,7 @@ class ModelAgent:
         plt.close()
         
         # Store model and results
-        model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
+        model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
         os.makedirs(model_dir, exist_ok=True)
         
         model_file = os.path.join(model_dir, 's1t1_gap_regressor.joblib')
@@ -761,8 +761,8 @@ class ModelAgent:
                 print(f"Error enhancing dataset: {str(e)}")
                     
             # Create results directory
-            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
-            models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
+            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
+            models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
             
             # Ensure directories exist
             os.makedirs(results_dir, exist_ok=True)
@@ -1145,7 +1145,7 @@ class ModelAgent:
         """Generate model visualizations"""
         try:
             # Create results directory
-            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
+            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
             os.makedirs(results_dir, exist_ok=True)
             
             print(f"Generating visualizations for {target_col}, saving to: {results_dir}")

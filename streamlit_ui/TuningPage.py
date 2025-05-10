@@ -58,7 +58,7 @@ def render_tuning_page(tuning_agent=None):
     
     if data_source == "使用特征工程结果":
         # 查找可用的特征文件
-        extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+        extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
         if os.path.exists(extracted_dir):
             feature_files = [f for f in os.listdir(extracted_dir) 
                             if ('feature' in f.lower() or 'processed' in f.lower()) 

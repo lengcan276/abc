@@ -1,592 +1,766 @@
-# agents/paper_agent.py
-import os
-import re
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime
-import logging
-import tempfile
-from PIL import Image
-import shutil
-import base64
-from io import BytesIO
-import requests
-from typing import List, Dict, Any, Optional, Tuple, Union
 # streamlit_ui/PaperPage.py
 import streamlit as st
+import os
+import base64
+import tempfile
+import time
+import shutil
+from io import BytesIO
+import sys
+import warnings
 
-``
-class PaperAgent:
-    """
-    Agent responsible for literature analysis and paper generation,
-    integrating system results into publishable research manuscripts.
-    """
+
+# 在导入前显示警告但继续执行
+warnings.filterwarnings('ignore', message='.*numpy.dtype size changed.*')
+warnings.filterwarnings('ignore', message='.*binary incompatibility.*')
+
+# 尝试依次导入各个包，并提供回退机制
+try:
+    from PIL import Image
+    pil_available = True
+except ImportError:
+    pil_available = False
+    st.warning("PIL/Pillow 库不可用，图像预览功能将受限。")
+
+try:
+    import pandas as pd
+    pandas_available = True
+except ImportError:
+    pandas_available = False
+    st.warning("Pandas 库不可用，数据处理功能将受限。")
+
+try:
+    import numpy as np
+    numpy_available = True
+except ImportError:
+    numpy_available = False
+    st.warning("NumPy 库不可用，数据分析功能将受限。")
+
+# 由于 matplotlib 和 seaborn 依赖 numpy，先检查 numpy 再导入
+viz_available = False
+if numpy_available:
+    try:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        viz_available = True
+    except ImportError:
+        st.warning("Matplotlib/Seaborn 库不可用，可视化功能将受限。")
+
+try:
+    import markdown
+    markdown_available = True
+except ImportError:
+    markdown_available = False
+    st.warning("Markdown 库不可用，可能影响文档格式转换。")
+
+# 尝试导入 WeasyPrint 和 pypandoc
+try:
+    from weasyprint import HTML
+    weasyprint_available = True
+except (ImportError, OSError) as e:
+    weasyprint_available = False
+    st.warning(f"WeasyPrint 库不可用: {str(e)}。PDF 生成将使用替代方法。")
+
+try:
+    import pypandoc
+    pypandoc_available = True
+except (ImportError, OSError):
+    pypandoc_available = False
+    st.warning("Pypandoc 不可用。DOCX 生成将使用替代方法。")
+
+def render_paper_page(paper_agent=None, model_agent=None, exploration_agent=None, insight_agent=None, multi_model_agent=None):
+    """渲染论文生成页面"""
+    st.title("学术论文生成")
     
-    def __init__(self):
-        """Initialize the PaperAgent."""
-        self.setup_logging()
-        self.literature_data = {}
-        self.figure_analyses = []
-        self.modeling_results = None
-        self.exploration_results = None
-        self.insight_results = None
-        
-    def setup_logging(self):
-        """Configure logging for the paper agent."""
-        logging.basicConfig(level=logging.INFO, 
-                           format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                           filename='data/logs/paper_agent.log')
-        self.logger = logging.getLogger('PaperAgent')
-        
-    def query_deepresearch(self, query, max_results=10, use_mock=True):
-        """
-        Query scientific literature using search API or simulated results.
-        
-        Args:
-            query: Search query string
-            max_results: Maximum number of results to return
-            use_mock: Whether to use simulated results (True) or attempt real API (False)
+    st.markdown("""
+    ## 学术论文生成
+    
+    本页面允许您基于反向 TADF 分析的结果生成完整的学术论文。
+    
+    论文将包括：
+    
+    1. **引言** - 反向 TADF 的背景及其重要性
+    2. **方法** - 计算方法和分析技术
+    3. **结果** - 探索和模型构建的主要发现
+    4. **讨论** - 结果解释与设计原则
+    5. **结论** - 总结和未来方向
+    
+    您可以自定义论文的各个方面并以多种格式下载。
+    """)
+    
+    # 提供环境信息按钮
+    if st.button("显示环境信息", help="显示当前 Python 环境和依赖库的状态"):
+        show_environment_info()
+    
+    # 添加多模型选择
+    st.sidebar.header("AI模型选择")
+    
+    use_multi_model = st.sidebar.checkbox("使用多模型协同生成", value=False, help="启用多AI模型协同工作生成高质量论文")
+    api_keys = {}
+    
+    if use_multi_model:
+        with st.sidebar.expander("AI模型详情", expanded=False):
+            st.info("""
+            多模型协同将利用不同AI模型的专长生成更高质量的论文：
             
-        Returns:
-            List of research papers matching the query
-        """
-        self.logger.info(f"Searching for literature: {query}")
+            - **Claude 3.5 Sonnet**: 负责高质量学术写作，生成引言和参考文献
+            - **DeepSeek R1**: 负责数据分析和推理，生成方法部分
+            - **GLM + Kimi k1.5**: 负责结果和讨论部分，生成数据图表解释
+            - **OpenAI o3 mini**: 负责生成摘要和结论
+            """)
+            
+        with st.sidebar.expander("配置API密钥（可选）"):
+            api_keys['anthropic'] = st.text_input("Anthropic API Key", type="password", help="用于Claude 3.5 Sonnet")
+            api_keys['openai'] = st.text_input("OpenAI API Key", type="password", help="用于o3 mini")
+            api_keys['deepseek'] = st.text_input("DeepSeek API Key", type="password", help="用于DeepSeek R1")
+            api_keys['kimi'] = st.text_input("Kimi API Key", type="password", help="用于Kimi k1.5")
+            api_keys['glm'] = st.text_input("GLM API Key", type="password", help="用于GLM-4")
+    
+    # 检查是否有可用的图表和结果
+    exploration_results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
+    modeling_results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
+    has_exploration = os.path.exists(exploration_results_dir) and len(os.listdir(exploration_results_dir)) > 0
+    has_modeling = os.path.exists(modeling_results_dir) and len(os.listdir(modeling_results_dir)) > 0
+    
+    if not (has_exploration or has_modeling):
+        st.warning("未找到探索分析或建模结果。建议先运行这些分析以生成包含图表的论文。")
+    else:
+        exploration_figures = []
+        modeling_figures = []
         
-        # 如果指定使用模拟结果或没有配置API，使用模拟数据
-        api_key = os.environ.get('LITERATURE_API_KEY', '')
+        # 收集可用图表
+        if has_exploration:
+            exploration_figures = [os.path.join(exploration_results_dir, f) for f in os.listdir(exploration_results_dir) if f.endswith('.png')]
+            st.success(f"找到 {len(exploration_figures)} 个探索分析图表可用于论文")
+            
+        if has_modeling:
+            modeling_figures = [os.path.join(modeling_results_dir, f) for f in os.listdir(modeling_results_dir) if f.endswith('.png')]
+            st.success(f"找到 {len(modeling_figures)} 个建模分析图表可用于论文")
         
-        if use_mock or not api_key:
-            self.logger.info(f"Using simulated literature results for query: {query}")
-            return self._simulate_search_results(query, max_results)
-        
-        # 尝试使用真实API（例如Semantic Scholar, Scopus, arXiv等）
-        try:
-            # 这里替换为实际的API实现
-            # 示例使用requests库调用外部API
-            api_url = "https://api.example.com/search"
-            
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "query": query,
-                "max_results": max_results,
-                "fields": ["title", "authors", "abstract", "year", "journal", "doi", "citations"]
-            }
-            
-            response = requests.post(api_url, headers=headers, json=payload)
-            
-            if response.status_code == 200:
-                results = response.json()
-                self.logger.info(f"API query successful, found {len(results.get('papers', []))} papers")
-                return results.get("papers", [])
-            else:
-                self.logger.error(f"API error: {response.status_code}, {response.text}")
-                return self._simulate_search_results(query, max_results)
+        # 显示可用图表预览
+        if exploration_figures or modeling_figures:
+            with st.expander("预览可用图表", expanded=False):
+                all_figures = exploration_figures + modeling_figures
+                selected_figures = st.multiselect(
+                    "选择要包含在论文中的图表",
+                    options=all_figures,
+                    default=all_figures[:min(5, len(all_figures))],
+                    format_func=lambda x: os.path.basename(x)
+                )
                 
-        except Exception as e:
-            self.logger.error(f"Error querying API: {str(e)}")
-            return self._simulate_search_results(query, max_results)
+                # 显示选中的图表预览
+                if selected_figures and pil_available:
+                    cols = st.columns(2)
+                    for i, fig_path in enumerate(selected_figures):
+                        try:
+                            with cols[i % 2]:
+                                img = Image.open(fig_path)
+                                st.image(img, caption=os.path.basename(fig_path), use_column_width=True)
+                        except Exception as e:
+                            st.error(f"无法加载图像 {os.path.basename(fig_path)}: {str(e)}")
+                elif selected_figures and not pil_available:
+                    st.info("图像预览需要 PIL/Pillow 库。请安装该库以启用图像预览。")
+    
+    # 论文信息输入
+    st.subheader("论文信息")
+    
+    with st.form("paper_form"):
+        title = st.text_input("论文标题", "反向 TADF 分子设计：反转激发态能量排序的计算分析")
         
-    def parse_literature(self, file_paths: List[str], format_type: str) -> Dict[str, Any]:
-        """
-        Parse uploaded literature files to extract structured information
+        authors_input = st.text_input("作者 (逗号分隔)", "作者1, 作者2, 作者3")
         
-        Args:
-            file_paths: List of paths to literature files
-            format_type: The type of files (pdf, txt, etc.)
-            
-        Returns:
-            Dictionary containing structured information about the literature
-        """
-        self.logger.info(f"Parsing {len(file_paths)} literature files of type {format_type}")
+        abstract = st.text_area("摘要", "This research presents a computational framework for studying reverse Thermally Activated Delayed Fluorescence (TADF) materials, where the energy of the first excited singlet state (S1) is lower than that of the first excited triplet state (T1). Through quantum chemical calculations and machine learning analysis, we identified key molecular descriptors controlling this unusual energy ordering and proposed design principles for developing new reverse TADF candidates.")
         
-        try:
-            # This is a simplified mock implementation
-            # In a real application, this would use PDF parsers, NLP, etc.
+        # 高级选项
+        with st.expander("高级选项"):
+            use_figures = st.checkbox("在论文中包含图表", value=True)
+            max_figures = st.slider("最大图表数量", min_value=1, max_value=10, value=5)
             
-            # Save to instance variable
-            self.literature_data = {
-                "total_papers": len(file_paths),
-                "topics": {
-                    "Reverse TADF": [
-                        {
-                            "title": "Singlet−Triplet Inversions in Through-Bond Charge-Transfer States",
-                            "authors": ["J. Terence Blaskovits", "Clémence Corminboeuf", "Marc H. Garner"],
-                            "year": "2024",
-                            "keywords": ["inverted gap", "TADF", "singlet-triplet inversion"]
-                        },
-                        {
-                            "title": "Delayed fluorescence from inverted singlet and triplet excited states",
-                            "authors": ["Naoya Aizawa", "et al."],
-                            "year": "2022",
-                            "keywords": ["inverted gap", "delayed fluorescence", "light emission"]
-                        }
-                    ],
-                    "Conventional TADF": [
-                        {
-                            "title": "Highly efficient thermally activated delayed fluorescence emitters",
-                            "authors": ["Various Authors"],
-                            "year": "2021",
-                            "keywords": ["TADF", "emission", "efficiency"]
-                        },
-                        {
-                            "title": "Design principles for TADF molecules",
-                            "authors": ["Various Authors"],
-                            "year": "2020",
-                            "keywords": ["TADF", "molecular design", "donor-acceptor"]
-                        },
-                        {
-                            "title": "Quantum chemical studies of TADF materials",
-                            "authors": ["Various Authors"],
-                            "year": "2023",
-                            "keywords": ["quantum chemistry", "computational", "TADF"]
-                        }
-                    ],
-                    "Computational Methods": [
-                        {
-                            "title": "Machine learning approaches for TADF prediction",
-                            "authors": ["Various Authors"],
-                            "year": "2022",
-                            "keywords": ["machine learning", "prediction", "TADF"]
-                        },
-                        {
-                            "title": "DFT studies of excited state properties",
-                            "authors": ["Various Authors"],
-                            "year": "2021",
-                            "keywords": ["DFT", "excited states", "computational"]
-                        }
-                    ]
-                },
-                "key_terms": [
-                    ["TADF", 45],
-                    ["Inverted gap", 32],
-                    ["Singlet-triplet", 28],
-                    ["Delayed fluorescence", 26],
-                    ["DFT calculation", 22],
-                    ["Excited state", 20],
-                    ["Donor-acceptor", 18],
-                    ["Quantum yield", 17],
-                    ["Molecular design", 15],
-                    ["Charge transfer", 14],
-                    ["Organic LED", 13],
-                    ["Phosphorescence", 12],
-                    ["Intersystem crossing", 11],
-                    ["Spin-orbit coupling", 10],
-                    ["Emission spectrum", 9],
-                    ["Computational screening", 8],
-                    ["Orbital overlap", 7],
-                    ["Reverse intersystem crossing", 6],
-                    ["Energy level", 5],
-                    ["Quantum chemistry", 4]
-                ]
-            }
-            
-            return self.literature_data
-            
-        except Exception as e:
-            self.logger.error(f"Error during literature parsing: {e}")
-            return {}
-        
-    def analyze_figures(self, figure_paths: List[str], data_paths: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """
-        Analyze uploaded figures and data files
-        
-        Args:
-            figure_paths: List of paths to figure files
-            data_paths: Optional list of paths to data files
-            
-        Returns:
-            List of dictionaries containing figure analysis information
-        """
-        self.logger.info(f"Analyzing {len(figure_paths)} figures")
-        
-        try:
-            # This is a simplified mock implementation
-            # In a real application, this would use image analysis and data processing
-            
-            analyses = []
-            
-            # Process each figure
-            for i, figure_path in enumerate(figure_paths):
-                figure_name = os.path.basename(figure_path)
+            st.subheader("自定义内容")
+            custom_introduction = st.text_area("自定义引言", "", height=200)
+            custom_methods = st.text_area("自定义方法", "", height=200)
+            custom_results = st.text_area("自定义结果", "", height=200)
+            custom_conclusion = st.text_area("自定义结论", "", height=200)
+            custom_references = st.text_area("自定义参考文献", "", height=200)
                 
-                # Determine figure type based on filename patterns
-                figure_type = "Unknown"
-                if "gap" in figure_name.lower() or "dist" in figure_name.lower():
-                    figure_type = "Distribution plot"
-                elif "corr" in figure_name.lower() or "heatmap" in figure_name.lower():
-                    figure_type = "Correlation heatmap"
-                elif "feature" in figure_name.lower() or "importance" in figure_name.lower():
-                    figure_type = "Feature importance plot"
-                elif "pca" in figure_name.lower():
-                    figure_type = "PCA plot"
-                elif "comparison" in figure_name.lower():
-                    figure_type = "Comparison plot"
+        # 输出格式选择
+        output_format = st.selectbox(
+            "选择输出格式",
+            ["markdown", "pdf", "docx"]
+        )
                 
-                # Generate caption based on figure type
-                caption = ""
-                trends = []
-                
-                if figure_type == "Distribution plot":
-                    caption = "Distribution of S1-T1 energy gaps showing molecules with both positive and negative values."
-                    trends = ["Multiple molecules exhibit negative S1-T1 gaps, confirming reverse TADF behavior.", 
-                              "The distribution is bimodal, suggesting two distinct molecular classes."]
-                elif figure_type == "Correlation heatmap":
-                    caption = "Correlation matrix of key molecular descriptors related to S1-T1 gap formation."
-                    trends = ["Strong correlation between electron withdrawing groups and negative S1-T1 gaps.",
-                              "Planarity index shows inverse correlation with gap magnitude."]
-                elif figure_type == "Feature importance plot":
-                    caption = "Relative importance of molecular features for predicting S1-T1 gap direction."
-                    trends = ["Electronic properties exhibit highest predictive power.",
-                              "Structural features like ring size have moderate importance."]
-                elif figure_type == "PCA plot":
-                    caption = "Principal component analysis of molecular features showing clustering of positive and negative S1-T1 gap compounds."
-                    trends = ["Clear separation between positive and negative gap molecules in feature space.",
-                              "PC1 explains 42% of variance and is dominated by electronic properties."]
-                elif figure_type == "Comparison plot":
-                    caption = "Comparison of key properties between molecules with positive and negative S1-T1 gaps."
-                    trends = ["Negative gap molecules show consistently higher electron withdrawing effects.",
-                              "Conjugation patterns differ significantly between the two groups."]
-                else:
-                    caption = f"Analysis of {figure_name} showing important molecular property relationships."
-                    trends = ["Several interesting patterns observed in the data.",
-                              "Further analysis may reveal additional structure-property relationships."]
-                
-                analyses.append({
-                    "figure_path": figure_path,
-                    "figure_name": figure_name,
-                    "figure_type": figure_type,
-                    "caption": caption,
-                    "trends": trends
-                })
-            
-            # Save to instance variable
-            self.figure_analyses = analyses
-            
-            return analyses
-            
-        except Exception as e:
-            self.logger.error(f"Error during figure analysis: {e}")
-            return []
-        
-    def load_results(self, modeling_results=None, exploration_results=None, insight_results=None):
-        """
-        Load results from other agents for paper generation
-        
-        Args:
-            modeling_results: Results from the ModelAgent
-            exploration_results: Results from the ExplorationAgent
-            insight_results: Results from the InsightAgent
-        """
-        self.modeling_results = modeling_results
-        self.exploration_results = exploration_results
-        self.insight_results = insight_results
-        
-        self.logger.info("Loaded results from other agents")
-        
-    def create_introduction(self):
-        """Generate introduction section of the paper"""
-        # In a real implementation, this would use NLP to generate text
-        # Here we provide a simple template-based approach
-        
-        introduction = """
-# Introduction
-
-Thermally Activated Delayed Fluorescence (TADF) has emerged as a promising approach for developing high-efficiency organic light-emitting diodes (OLEDs). Conventional TADF materials rely on a small positive energy gap between the first excited singlet (S1) and triplet (T1) states, enabling reverse intersystem crossing (RISC) to harvest triplet excitons for emission. However, recent discoveries have identified a novel class of materials characterized by an inverted singlet-triplet gap, where the S1 state lies energetically below the T1 state.
-
-This phenomenon of "reverse TADF" or "inverted gap" materials presents a paradigm shift in OLED design, potentially offering unprecedented quantum efficiencies by fundamentally altering the exciton dynamics. Inverted gap materials can theoretically achieve 100% internal quantum efficiency without the thermal activation barrier typically required in conventional TADF systems.
-
-Despite their promise, molecules with negative S1-T1 gaps remain rare, and the structural and electronic factors governing this unusual energetic ordering are not fully understood. This research explores computational approaches to identify, characterize, and design new molecules with inverted singlet-triplet gaps, with particular focus on the quantum chemical principles underlying this phenomenon.
-
-Through systematic computational screening, feature engineering, and machine learning analysis, we aim to establish design principles for reverse TADF materials that can guide experimental synthesis efforts. Our work addresses the following key questions:
-
-1. What structural and electronic features correlate with negative S1-T1 gaps?
-2. Can these features be incorporated into practical design strategies?
-3. How accurately can computational models predict the sign and magnitude of S1-T1 gaps?
-
-By addressing these questions, this research contributes to the emerging field of inverted gap materials and provides a foundation for next-generation OLED technologies.
-"""
-        return introduction
-        
-    def create_methods(self):
-        """Generate methods section of the paper"""
-        methods = """
-# Methods
-
-## Computational Workflow
-
-Our computational workflow consists of several integrated components designed to extract, analyze, and predict molecular properties related to reverse TADF behavior:
-
-### Quantum Chemical Calculations
-
-All molecular structures were optimized using Density Functional Theory (DFT) with the ωB97X-D functional and def2-TZVP basis set as implemented in Gaussian 16. Frequency calculations were performed to confirm that optimized structures represent true energy minima. Excited states were characterized using Time-Dependent DFT (TD-DFT) with the same functional and basis set. For select molecules, higher-level calculations using Equation-of-Motion Coupled Cluster (EOM-CCSD) methods were employed to validate the DFT results.
-
-### Data Processing Pipeline
-
-A multi-stage data processing pipeline was developed to extract and analyze quantum chemical data:
-
-1. **Data Extraction Agent**: Processes output files from Gaussian (log files) and CREST calculations to extract energies, orbital properties, and structural parameters.
-2. **Feature Engineering Agent**: Generates molecular descriptors including electronic properties, structural features, and alternative 3D descriptors that do not require explicit 3D coordinates.
-3. **Exploration Agent**: Identifies and analyzes molecules with negative S1-T1 gaps, comparing their properties with molecules having positive gaps.
-4. **Modeling Agent**: Builds machine learning models to predict S1-T1 gap direction (classification) and magnitude (regression).
-5. **Insight Agent**: Analyzes feature importance and generates structure-property relationship explanations.
-
-### Machine Learning Approach
-
-For predictive modeling, we employed Random Forest algorithms for both classification (predicting positive vs. negative S1-T1 gaps) and regression (predicting the actual gap value). Features were selected using a combination of mutual information criteria, F-statistic importance, and permutation importance. Models were evaluated using stratified k-fold cross-validation with k=5.
-
-### Molecular Dataset
-
-Our analysis focused on a diverse set of conjugated organic molecules, particularly:
-- Non-alternant polycyclic hydrocarbons
-- Donor-acceptor systems with varying conjugation patterns
-- Molecules with different ring sizes and substituent patterns
-
-Each molecule was characterized in three electronic states: neutral ground state, excited state, and triplet state. Conformational flexibility was assessed using CREST calculations to ensure that global energy minima were identified.
-"""
-        return methods
-        
-    def create_results_discussion(self):
-        """Generate results and discussion section of the paper"""
-        results = """
-# Results and Discussion
-
-## Identification of Molecules with Negative S1-T1 Gaps
-
-Our computational screening identified several molecules exhibiting negative S1-T1 gaps. Figure 1 shows the distribution of S1-T1 energy gaps across the molecular dataset, highlighting the subset of molecules with inverted gaps. These molecules represent approximately 15% of our dataset, confirming that inverted singlet-triplet ordering, while unusual, is not exceedingly rare when specifically targeted through molecular design.
-
-## Key Molecular Features Associated with Negative Gaps
-
-Feature importance analysis revealed several key molecular descriptors strongly correlated with negative S1-T1 gaps (Figure 2). The most significant features include:
-
-1. **Electronic Properties**: Electron-withdrawing effects emerged as the strongest predictor, with negative gap molecules showing consistently higher electron-withdrawing character. This aligns with theoretical expectations that electron-withdrawing groups can stabilize frontier orbitals in ways that preferentially affect the singlet state.
-
-2. **Conjugation Patterns**: Estimated conjugation and planarity indices showed significant predictive power. Molecules with extensive conjugation, particularly those with non-alternant patterns, exhibited a higher propensity for inverted gaps.
-
-3. **Structural Features**: Certain ring sizes (particularly 5- and 7-membered rings) correlated positively with negative gaps, while others (6-membered rings) showed an inverse relationship.
-
-4. **Substituent Effects**: Strong donor-acceptor combinations, particularly when positioned to create through-bond charge transfer states, were frequently observed in negative gap molecules.
-
-## Predictive Model Performance
-
-Our machine learning models achieved promising performance in predicting S1-T1 gap properties:
-
-1. **Classification Model**: The Random Forest classifier achieved 87% accuracy in distinguishing between molecules with positive versus negative gaps. Precision for identifying negative gap molecules was 82%, with a recall of 79%.
-
-2. **Regression Model**: The regression model predicted the actual S1-T1 gap values with an R² of 0.76 and RMSE of 0.18 eV, indicating good predictive capability across both positive and negative gap regimes.
-
-Figure 3 shows the correlation between predicted and calculated S1-T1 gaps, demonstrating the model's ability to accurately predict both positive and negative values.
-
-## Structure-Property Relationships
-
-Principal Component Analysis (PCA) of molecular features (Figure 4) revealed distinct clustering between molecules with positive and negative S1-T1 gaps, suggesting fundamental differences in their electronic structures. The first two principal components, dominated by electronic properties and conjugation patterns, explained approximately 65% of the variance in the dataset.
-
-Detailed analysis of orbital characteristics showed that molecules with negative gaps typically exhibit one of two patterns:
-
-1. Spatially separated but non-overlapping HOMO and LUMO orbitals, creating minimized exchange interactions
-2. Through-bond charge transfer states with specific donor-acceptor configurations
-
-These patterns were consistent across different molecular scaffolds, suggesting generalizable design principles.
-
-## Design Principles for Reverse TADF Materials
-
-Based on our analysis, we propose the following design principles for molecules with inverted singlet-triplet gaps:
-
-1. Incorporate strong electron-withdrawing groups at specific positions to selectively stabilize frontier orbitals
-2. Utilize non-alternant polycyclic frameworks to promote the formation of spatially separated frontier orbitals
-3. Balance conjugation extent to maintain sufficient oscillator strength while minimizing exchange interactions
-4. Consider donor-acceptor combinations that create through-bond rather than through-space charge transfer
-
-These principles provide a rational framework for the design of new reverse TADF materials with potential applications in next-generation OLEDs and other optoelectronic devices.
-"""
-        return results
-        
-    def create_conclusion(self):
-        """Generate conclusion section of the paper"""
-        conclusion = """
-# Conclusion
-
-This research has established a comprehensive computational approach to identify, characterize, and predict molecules with inverted singlet-triplet gaps for reverse TADF applications. Our analysis has revealed distinct electronic and structural patterns associated with negative S1-T1 gaps, providing valuable insights into the quantum mechanical origins of this unusual phenomenon.
-
-The machine learning models developed in this work demonstrate the feasibility of predicting S1-T1 gap properties with good accuracy, offering a practical tool for virtual screening of potential reverse TADF candidates. The identified design principles, based on electron-withdrawing effects, conjugation patterns, and specific structural motifs, provide a rational foundation for guiding experimental synthesis efforts.
-
-Future work should focus on experimental validation of the predicted reverse TADF candidates, further refinement of quantum chemical methods for more accurate gap predictions, and exploration of additional molecular scaffolds that might exhibit inverted gaps. The integration of advanced orbital analysis techniques with machine learning approaches represents a promising direction for deepening our understanding of the electronic factors governing singlet-triplet energy ordering.
-
-The results presented here contribute to the emerging field of inverted gap materials and highlight the potential of computational approaches in accelerating the discovery of novel functional materials for optoelectronic applications.
-"""
-        return conclusion
-        
-    def create_references(self):
-        """Generate references section of the paper"""
-        references = """
-# References
-
-1. Aizawa, N.; Pu, Y.-J.; Harabuchi, Y.; Nihonyanagi, A.; Ibuka, R.; Inuzuka, H.; Dhara, B.; Koyama, Y.; Nakayama, K.-i.; Maeda, S.; Araoka, F.; Miyajima, D. Delayed fluorescence from inverted singlet and triplet excited states. Nature 2022, 609, 502-506.
-
-2. Blaskovits, J. T.; Garner, M. H.; Corminboeuf, C. Symmetry-Induced Singlet-Triplet Inversions in Non-Alternant Hydrocarbons. Angew. Chem., Int. Ed. 2023, 62, e202218156.
-
-3. Pollice, R.; Friederich, P.; Lavigne, C.; dos Passos Gomes, G.; Aspuru-Guzik, A. Organic molecules with inverted gaps between first excited singlet and triplet states and appreciable fluorescence rates. Matter 2021, 4, 1654-1682.
-
-4. Blaskovits, J. T.; Corminboeuf, C.; Garner, M. H. Singlet−Triplet Inversions in Through-Bond Charge-Transfer States. J. Phys. Chem. Lett. 2024, 15, 10062-10067.
-
-5. de Silva, P. Inverted Singlet-Triplet Gaps and Their Relevance to Thermally Activated Delayed Fluorescence. J. Phys. Chem. Lett. 2019, 10, 5674-5679.
-
-6. Sanz-Rodrigo, J.; Ricci, G.; Olivier, Y.; Sancho-García, J. C. Negative Singlet-Triplet Excitation Energy Gap in Triangle-Shaped Molecular Emitters for Efficient Triplet Harvesting. J. Phys. Chem. A 2021, 125, 513-522.
-
-7. Ehrmaier, J.; Rabe, E. J.; Pristash, S. R.; Corp, K. L.; Schlenker, C. W.; Sobolewski, A. L.; Domcke, W. Singlet-Triplet Inversion in Heptazine and in Polymeric Carbon Nitrides. J. Phys. Chem. A 2019, 123, 8099-8108.
-
-8. Ricci, G.; Sancho-García, J.-C.; Olivier, Y. Establishing design strategies for emissive materials with an inverted singlet-triplet energy gap (INVEST): a computational perspective on how symmetry rules the interplay between triplet harvesting and light emission. J. Mater. Chem. C 2022, 10, 12680-12698.
-
-9. Garner, M. H.; Blaskovits, J. T.; Corminboeuf, C. Double-bond delocalization in non-alternant hydrocarbons induces inverted singlet-triplet gaps. Chem. Sci. 2023, 14, 10458-10466.
-
-10. Omar, O. H.; Xie, X.; Troisi, A.; Padula, D. Identification of Unknown Inverted Singlet-Triplet Cores by High-Throughput Virtual Screening. J. Am. Chem. Soc. 2023, 145, 19790-19799.
-"""
-        return references
-        
-    def generate_paper(self, sections: Dict[str, bool], title: str) -> str:
-        """
-        Generate a complete research paper based on specified sections
-        
-        Args:
-            sections: Dictionary of sections to include
-            title: Paper title
-            
-        Returns:
-            Complete paper text
-        """
-        self.logger.info(f"Generating paper with title: {title}")
-        
-        paper = f"# {title}\n\n"
-        
-        # Add author information
-        paper += "**Authors:** Research Team\n\n"
-        paper += f"**Date:** {datetime.now().strftime('%B %d, %Y')}\n\n"
-        
-        # Add abstract
-        paper += "## Abstract\n\n"
-        paper += "This study presents a computational approach to identify and characterize molecules with inverted singlet-triplet gaps for reverse Thermally Activated Delayed Fluorescence (TADF) applications. Through quantum chemical calculations and machine learning analysis, we establish key structural and electronic features associated with negative S1-T1 gaps. Our models successfully predict both the direction and magnitude of S1-T1 gaps with good accuracy. Based on feature importance analysis, we propose design principles for reverse TADF materials, contributing to the development of next-generation organic light-emitting diodes (OLEDs) with enhanced efficiency.\n\n"
-        
-        # Add requested sections
-        if sections.get("include_intro", True):
-            paper += self.create_introduction()
-        
-        if sections.get("include_methods", True):
-            paper += self.create_methods()
-        
-        if sections.get("include_results", True):
-            paper += self.create_results_discussion()
-        
-        if sections.get("include_conclusion", True):
-            paper += self.create_conclusion()
-        
-        if sections.get("include_references", True):
-            paper += self.create_references()
-            
-        return paper
-        
-    def save_paper_to_file(self, paper_text: str, output_format: str) -> str:
-        """
-        Save paper to a file in the specified format
-        
-        Args:
-            paper_text: The paper text
-            output_format: Format to save (docx, pdf, latex)
-            
-        Returns:
-            Path to the saved file
-        """
-        # Create output directory
-        output_dir = "data/papers"
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Generate output filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_filename = f"reverse_tadf_paper_{timestamp}"
-        
-        if output_format == "docx":
-            # Here we would convert Markdown to DOCX
-            # For simplicity, we'll just save as Markdown with .docx extension
-            output_path = os.path.join(output_dir, f"{base_filename}.docx")
-            
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(paper_text)
-                
-            return output_path
-            
-        elif output_format == "pdf":
-            # Here we would convert Markdown to PDF
-            # For simplicity, we'll just save as Markdown with .pdf extension
-            output_path = os.path.join(output_dir, f"{base_filename}.pdf")
-            
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(paper_text)
-                
-            return output_path
-            
-        elif output_format == "latex":
-            # Here we would convert Markdown to LaTeX
-            # For simplicity, we'll just save as Markdown with .tex extension
-            output_path = os.path.join(output_dir, f"{base_filename}.tex")
-            
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(paper_text)
-                
-            return output_path
-            
+        # GPT-4 扩展选项（仅在不使用多模型时显示）
+        if not use_multi_model:
+            use_gpt4 = st.checkbox("使用 GPT-4 增强论文")
+            api_key = st.text_input("OpenAI API Key", type="password") if use_gpt4 else None
         else:
-            # Default to Markdown
-            output_path = os.path.join(output_dir, f"{base_filename}.md")
-            
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(paper_text)
+            use_gpt4 = False
+            api_key = None
+        
+        # 提交按钮
+        submit_button = st.form_submit_button("生成论文")
+    
+    # 生成论文
+    if submit_button:
+        # 准备自定义内容
+        sections = {
+            "include_intro": not bool(custom_introduction),
+            "include_methods": not bool(custom_methods),
+            "include_results": not bool(custom_results),
+            "include_conclusion": not bool(custom_conclusion),
+            "include_references": not bool(custom_references),
+            "include_figures": use_figures
+        }
+        
+        # 准备自定义部分字典
+        custom_sections = {}
+        if custom_introduction:
+            custom_sections['introduction'] = custom_introduction
+        if custom_methods:
+            custom_sections['methods'] = custom_methods
+        if custom_results:
+            custom_sections['results_discussion'] = custom_results
+        if custom_conclusion:
+            custom_sections['conclusion'] = custom_conclusion
+        if custom_references:
+            custom_sections['references'] = custom_references
+        
+        with st.spinner("正在生成论文..."):
+            try:
+                if use_multi_model:
+                    # 使用多模型智能体生成论文
+                    # 初始化多模型智能体（如果尚未初始化）
+                    if multi_model_agent is None:
+                        try:
+                            from agents.multi_model_agent import MultiModelAgent
+                            multi_model_agent = MultiModelAgent(api_keys=api_keys)
+                        except ImportError as e:
+                            st.error(f"无法加载多模型智能体: {str(e)}")
+                            st.info("正在退回到传统论文生成方法...")
+                            use_multi_model = False
+                    
+                if use_multi_model and multi_model_agent:
+                    # 创建进度条
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    # 加载结果到多模型智能体
+                    status_text.text("加载分析结果...")
+                    progress_bar.progress(10)
+                    
+                    # 获取建模结果
+                    modeling_results = None
+                    if model_agent and hasattr(model_agent, 'results'):
+                        modeling_results = model_agent.results
+                        
+                    # 获取探索结果
+                    exploration_results = None
+                    if exploration_agent and hasattr(exploration_agent, 'results'):
+                        exploration_results = exploration_agent.results
+                        
+                    # 获取洞察结果
+                    insight_results = None
+                    if insight_agent and hasattr(insight_agent, 'results'):
+                        insight_results = insight_agent.results
+                    
+                    # 加载结果到多模型智能体
+                    multi_model_agent.load_results(
+                        modeling_results=modeling_results,
+                        exploration_results=exploration_results,
+                        insight_results=insight_results
+                    )
+                    
+                    # 收集文献数据（如果有）
+                    if paper_agent and hasattr(paper_agent, 'literature_data'):
+                        multi_model_agent.load_literature_data(paper_agent.literature_data)
+                        status_text.text("已加载文献数据...")
+                    progress_bar.progress(20)
+                    
+                    # 分析和处理图表（如果选择了使用图表）
+                    if use_figures and 'selected_figures' in locals() and selected_figures:
+                        status_text.text("分析选定的图表...")
+                        figures_to_use = selected_figures[:max_figures]
+                        visualizations = multi_model_agent.generate_visualizations(
+                            data=(modeling_results or exploration_results or {}),
+                            figures=figures_to_use
+                        )
+                        status_text.text("图表分析完成...")
+                    progress_bar.progress(30)
+                    
+                    # 生成论文
+                    status_text.text("生成论文内容 (Claude 3.5 Sonnet 处理引言)...")
+                    progress_bar.progress(40)
+                    
+                    # 使用多模型智能体生成完整论文
+                    result = multi_model_agent.generate_complete_paper(
+                        title=title,
+                        custom_sections=custom_sections
+                    )
+                    
+                    progress_bar.progress(100)
+                    status_text.text("论文生成完成！")
+                    
+                    # 如果生成成功，保存并显示结果
+                    if result and 'complete_paper' in result:
+                        # 创建输出目录
+                        papers_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+                        os.makedirs(papers_dir, exist_ok=True)
+                        
+                        # 生成输出文件名
+                        timestamp = time.strftime("%Y%m%d_%H%M%S")
+                        base_filename = f"reverse_tadf_paper_{timestamp}"
+                        
+                        # 根据选择的格式保存文件
+                        if output_format == "markdown":
+                            # 保存为Markdown（纯文本）
+                            output_file = os.path.join(papers_dir, f"{base_filename}.md")
+                            with open(output_file, 'w', encoding='utf-8') as f:
+                                f.write(result['complete_paper'])
+                        elif output_format == "pdf":
+                            # 保存为PDF
+                            output_file = os.path.join(papers_dir, f"{base_filename}.pdf")
+                            convert_markdown_to_pdf(result['complete_paper'], output_file)
+                        elif output_format == "docx":
+                            # 保存为DOCX
+                            output_file = os.path.join(papers_dir, f"{base_filename}.docx")
+                            convert_markdown_to_docx(result['complete_paper'], output_file)
+                        else:
+                            # 默认保存为Markdown
+                            output_file = os.path.join(papers_dir, f"{base_filename}.md")
+                            with open(output_file, 'w', encoding='utf-8') as f:
+                                f.write(result['complete_paper'])
+                        
+                        st.success("论文生成成功！")
+                        
+                        # 创建标签页用于预览和原始内容
+                        tabs = st.tabs(["预览", "原始内容"])
+                        
+                        with tabs[0]:
+                            st.markdown(result['complete_paper'])
+                            
+                        with tabs[1]:
+                            st.code(result['complete_paper'], language="markdown")
+                        
+                        # 创建下载链接
+                        create_download_link(output_file, f"下载论文 ({output_format})")
+                    else:
+                        st.error("多模型论文生成失败。")
+                        if paper_agent:
+                            st.info("尝试使用默认论文生成器...")
+                            use_multi_model = False
+                        else:
+                            st.error("无可用的论文生成器。")
                 
-            return output_path
+                # 如果不使用多模型或多模型失败，使用原始论文生成器
+                if not use_multi_model:
+                    # 初始化论文生成器 (如果尚未初始化)
+                    if paper_agent is None:
+                        try:
+                            from agents.paper_agent import PaperAgent
+                            paper_agent = PaperAgent()
+                        except ImportError as e:
+                            st.error(f"无法加载论文生成器: {str(e)}")
+                            st.error("请检查依赖项是否正确安装。")
+                            return
+                    
+                    # 确保结果已加载
+                    modeling_results = None
+                    if model_agent and hasattr(model_agent, 'results'):
+                        modeling_results = model_agent.results
+                        
+                    exploration_results = None
+                    if exploration_agent and hasattr(exploration_agent, 'results'):
+                        exploration_results = exploration_agent.results
+                        
+                    insight_results = None
+                    if insight_agent and hasattr(insight_agent, 'results'):
+                        insight_results = insight_agent.results
+                    
+                    # 加载结果到论文生成器
+                    paper_agent.load_results(
+                        modeling_results=modeling_results,
+                        exploration_results=exploration_results,
+                        insight_results=insight_results
+                    )
+                    
+                    # 如果使用图表，分析并添加到论文生成器
+                    if use_figures and 'selected_figures' in locals() and selected_figures:
+                        figures_to_use = selected_figures[:max_figures]
+                        with st.spinner("分析选定的图表..."):
+                            paper_agent.analyze_figures(figures_to_use)
+                    
+                    # 首先生成论文文本
+                    paper_text = paper_agent.generate_paper(
+                        sections=sections,
+                        title=title
+                    )
+                    
+                    # 添加自定义内容
+                    if custom_introduction:
+                        paper_text = paper_text.replace("# Introduction", f"# Introduction\n\n{custom_introduction}")
+                    if custom_methods:
+                        paper_text = paper_text.replace("# Methods", f"# Methods\n\n{custom_methods}")
+                    if custom_results:
+                        paper_text = paper_text.replace("# Results and Discussion", f"# Results and Discussion\n\n{custom_results}")
+                    if custom_conclusion:
+                        paper_text = paper_text.replace("# Conclusion", f"# Conclusion\n\n{custom_conclusion}")
+                    if custom_references:
+                        paper_text = paper_text.replace("# References", f"# References\n\n{custom_references}")
+                    
+                    # 然后将其保存到文件
+                    result_path = paper_agent.save_paper_to_file(paper_text, output_format)
+                    
+                    if result_path:
+                        st.success("论文生成成功！")
+                        
+                        # 尝试显示论文内容
+                        try:
+                            with open(result_path, 'r') as f:
+                                paper_content = f.read()
+                                
+                            # 创建选项卡用于预览和原始内容
+                            tabs = st.tabs(["预览", "原始内容"])
+                            
+                            with tabs[0]:
+                                st.markdown(paper_content)
+                                
+                            with tabs[1]:
+                                st.code(paper_content, language="markdown")
+                        except Exception as e:
+                            st.warning(f"无法显示论文预览: {str(e)}")
+                        
+                        # 创建下载链接
+                        create_download_link(result_path, f"下载论文 ({output_format})")
+                    else:
+                        st.error("无法生成论文。")
             
-    def run_paper_generation_pipeline(self, output_formats=None) -> Dict[str, str]:
-        """
-        Run the complete paper generation pipeline
+            except Exception as e:
+                st.error(f"生成论文时出错: {str(e)}")
+                st.error(f"错误详情: {type(e).__name__}: {str(e)}")
+                st.info("如果遇到依赖相关错误，请参考环境信息并尝试重新安装依赖包。")
+                
+    # 显示最近生成的论文
+    papers_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+    if os.path.exists(papers_dir):
+        paper_files = [f for f in os.listdir(papers_dir) if f.endswith('.md') or f.endswith('.pdf') or f.endswith('.docx')]
         
-        Args:
-            output_formats: List of output formats (docx, pdf, latex)
+        if paper_files:
+            st.subheader("最近生成的论文")
             
-        Returns:
-            Dictionary mapping formats to output file paths
-        """
-        if output_formats is None:
-            output_formats = ["docx"]
-            
-        self.logger.info(f"Running paper generation pipeline with formats: {output_formats}")
+            for file in sorted(paper_files, reverse=True)[:5]:  # 只显示最近的5篇
+                paper_path = os.path.join(papers_dir, file)
+                create_download_link(paper_path, f"下载 {file}")
+
+def show_environment_info():
+    """显示当前 Python 环境和依赖库的状态"""
+    st.subheader("环境信息")
+    
+    # Python 版本
+    st.code(f"Python 版本: {sys.version}", language="text")
+    
+    # 依赖库状态
+    libs_status = {
+        "NumPy": ["numpy_available", "数据处理核心库"],
+        "Pandas": ["pandas_available", "表格数据处理"],
+        "Matplotlib/Seaborn": ["viz_available", "数据可视化"],
+        "PIL/Pillow": ["pil_available", "图像处理"],
+        "Markdown": ["markdown_available", "Markdown 解析"],
+        "WeasyPrint": ["weasyprint_available", "PDF 生成"],
+        "pypandoc": ["pypandoc_available", "文档格式转换"]
+    }
+    
+    status_df = []
+    for lib, (var_name, desc) in libs_status.items():
+        status = "✅ 可用" if globals().get(var_name, False) else "❌ 不可用"
+        status_df.append({"库": lib, "状态": status, "说明": desc})
+    
+    st.table(status_df)
+    
+    # 提供修复建议
+    st.subheader("修复建议")
+    
+    if not numpy_available or not pandas_available or not viz_available:
+        st.info("""
+        ### 解决 NumPy/SciPy/Pandas 兼容性问题:
+        ```bash
+        # 方法一: 重新安装依赖包
+        pip install --force-reinstall scipy pandas matplotlib seaborn
         
+        # 方法二: 使用 Conda
+        conda update numpy scipy pandas matplotlib seaborn
+        ```
+        """)
+    
+    if not weasyprint_available:
+        st.info("""
+        ### 安装 WeasyPrint 依赖:
+        ```bash
+        # Debian/Ubuntu
+        sudo apt-get update
+        sudo apt-get install -y libcairo2-dev libpango1.0-dev libgdk-pixbuf2.0-dev libffi-dev shared-mime-info
+        sudo apt-get install -y libgirepository1.0-dev gir1.2-gtk-3.0
+        
+        # 然后重新安装
+        pip install --force-reinstall weasyprint
+        ```
+        """)
+
+def create_download_link(file_path, text):
+    """创建文件下载链接，根据文件类型设置正确的MIME类型"""
+    try:
+        with open(file_path, 'rb') as f:
+            data = f.read()
+            
+        b64 = base64.b64encode(data).decode()
+        filename = os.path.basename(file_path)
+        
+        # 根据文件扩展名设置正确的MIME类型
+        if filename.lower().endswith('.pdf'):
+            mime = "application/pdf"
+        elif filename.lower().endswith('.docx'):
+            mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else:
+            mime = "text/markdown"
+        
+        href = f'<a href="data:{mime};base64,{b64}" download="{filename}">{text}</a>'
+        st.markdown(href, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"创建下载链接时出错: {str(e)}")
+        st.info(f"您可以直接从以下路径访问文件: {file_path}")
+
+def convert_markdown_to_pdf(content, output_path):
+    """将Markdown内容转换为PDF，带有自动回退机制"""
+    # 首先尝试使用WeasyPrint
+    if weasyprint_available:
         try:
-            # Generate paper with all sections
-            sections = {
-                "include_intro": True,
-                "include_methods": True,
-                "include_results": True,
-                "include_conclusion": True,
-                "include_references": True,
-                "include_figures": True
-            }
+            # 将Markdown转换为HTML
+            html = markdown.markdown(content)
             
-            paper_text = self.generate_paper(
-                sections=sections,
-                title="Computational Design and Analysis of Reverse TADF Molecules"
-            )
+            # 添加基本样式
+            styled_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 2cm; }}
+                    h1 {{ color: #333366; }}
+                    h2 {{ color: #333366; }}
+                    pre {{ background-color: #f5f5f5; padding: 10px; border-radius: 5px; }}
+                    img {{ max-width: 100%; height: auto; }}
+                </style>
+            </head>
+            <body>
+                {html}
+            </body>
+            </html>
+            """
             
-            # Save paper in requested formats
-            output_files = {}
-            
-            for fmt in output_formats:
-                output_path = self.save_paper_to_file(paper_text, fmt)
-                output_files[fmt] = output_path
-                self.logger.info(f"Saved paper in {fmt} format to {output_path}")
-                
-            return output_files
-            
+            # 使用WeasyPrint转换HTML为PDF
+            HTML(string=styled_html).write_pdf(output_path)
+            return True
         except Exception as e:
-            self.logger.error(f"Error in paper generation pipeline: {e}")
-            return {}
+            st.warning(f"WeasyPrint PDF转换失败: {str(e)}，尝试替代方法...")
+    
+    # 如果WeasyPrint不可用或失败，尝试使用pypandoc
+    # 如果WeasyPrint不可用或失败，尝试使用pypandoc
+    if pypandoc_available:
+        try:
+            # 创建临时Markdown文件
+            with tempfile.NamedTemporaryFile(mode='w+', suffix='.md', encoding='utf-8', delete=False) as temp:
+                temp.write(content)
+                temp_path = temp.name
+            
+            # 使用pypandoc转换为PDF (修改转换参数)
+            # 方法1：使用默认引擎，不指定pdf-engine
+            pypandoc.convert_file(temp_path, 'pdf', outputfile=output_path)
+            
+            # 如果上述方法失败，可以尝试方法2：明确使用wkhtmltopdf
+            # 确保这个命令在运行前被注释掉，只有当方法1失败时才取消注释
+            # pypandoc.convert_file(temp_path, 'pdf', outputfile=output_path, extra_args=['--pdf-engine=wkhtmltopdf'])
+            
+            # 删除临时文件
+            os.unlink(temp_path)
+            return True
+        except Exception as e:
+            st.warning(f"Pypandoc PDF转换失败: {str(e)}，尝试最后的替代方法...")
+    
+    # 如果所有PDF转换方法失败，创建简单的HTML文件并提供HTML下载
+    try:
+        html_output_path = output_path.replace('.pdf', '.html')
+        html = markdown.markdown(content) if markdown_available else f"<pre>{content}</pre>"
+        
+        # 添加基本样式
+        styled_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 2cm; }}
+                h1 {{ color: #333366; }}
+                h2 {{ color: #333366; }}
+                pre {{ background-color: #f5f5f5; padding: 10px; border-radius: 5px; }}
+                img {{ max-width: 100%; height: auto; }}
+                @media print {{ body {{ margin: 2cm; }} }}
+            </style>
+            <title>导出论文</title>
+        </head>
+        <body>
+            {html}
+            <script>
+                // 添加打印提示
+                document.addEventListener('DOMContentLoaded', function() {{
+                    const printMsg = document.createElement('div');
+                    printMsg.style.textAlign = 'center';
+                    printMsg.style.marginTop = '20px';
+                    printMsg.style.padding = '10px';
+                    printMsg.style.backgroundColor = '#f0f0f0';
+                    printMsg.innerHTML = '<p>您可以通过浏览器的打印功能将此页面保存为PDF</p>';
+                    document.body.appendChild(printMsg);
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        
+        with open(html_output_path, 'w', encoding='utf-8') as f:
+            f.write(styled_html)
+        
+        # 保存原始Markdown作为备份
+        md_output_path = output_path.replace('.pdf', '.md')
+        with open(md_output_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        st.warning(f"无法直接生成PDF。已创建HTML文件，您可以使用浏览器打印功能将其保存为PDF。")
+        st.info(f"已保存HTML格式: {os.path.basename(html_output_path)} 和 Markdown格式: {os.path.basename(md_output_path)}")
+        return False
+    except Exception as e:
+        # 最后的回退：保存为纯Markdown
+        fallback_path = output_path.replace('.pdf', '.md')
+        with open(fallback_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        st.warning(f"所有转换尝试均失败，已保存为Markdown格式: {os.path.basename(fallback_path)}")
+        return False
+
+def convert_markdown_to_docx(content, output_path):
+    """将Markdown内容转换为DOCX，带有自动回退机制"""
+    # 首先尝试使用pypandoc
+    if pypandoc_available:
+        try:
+            # 创建临时Markdown文件
+            with tempfile.NamedTemporaryFile(mode='w+', suffix='.md', encoding='utf-8', delete=False) as temp:
+                temp.write(content)
+                temp_path = temp.name
+            
+            # 使用pypandoc转换为DOCX
+            result = pypandoc.convert_file(temp_path, 'docx', outputfile=output_path)
+            
+            # 检查结果和文件是否创建
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                # 删除临时文件
+                os.unlink(temp_path)
+                return True
+            else:
+                raise Exception("输出文件创建失败或为空")
+                
+        except Exception as e:
+            st.warning(f"Pypandoc DOCX转换失败: {str(e)}，尝试替代方法...")
+    
+    # 如果pypandoc不可用或失败，保存为Markdown
+    try:
+        fallback_path = output_path.replace('.docx', '.md')
+        with open(fallback_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        st.warning(f"DOCX转换失败。已保存为Markdown格式: {os.path.basename(fallback_path)}")
+        
+        # 同时创建一个HTML版本，这样用户可以从浏览器复制到Word
+        html_path = output_path.replace('.docx', '.html')
+        html = markdown.markdown(content) if markdown_available else f"<pre>{content}</pre>"
+        
+        # 添加增强的样式，使其更像Word文档
+        styled_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {{ 
+                    font-family: 'Times New Roman', Times, serif; 
+                    margin: 2.5cm;
+                    line-height: 1.5;
+                    font-size: 12pt;
+                }}
+                h1 {{ 
+                    color: #000066; 
+                    font-size: 18pt;
+                    text-align: center;
+                    margin-top: 24pt;
+                    margin-bottom: 12pt;
+                }}
+                h2 {{ 
+                    color: #000066; 
+                    font-size: 14pt;
+                    margin-top: 18pt;
+                    margin-bottom: 10pt;
+                }}
+                h3 {{ 
+                    font-size: 12pt;
+                    margin-top: 14pt;
+                    margin-bottom: 8pt;
+                }}
+                p {{ text-align: justify; }}
+                pre {{ 
+                    background-color: #f5f5f5; 
+                    padding: 10px; 
+                    border-radius: 5px;
+                    font-family: Consolas, Monaco, 'Courier New', monospace;
+                }}
+                img {{ max-width: 100%; height: auto; }}
+                .word-instructions {{
+                    background-color: #f0f0f0;
+                    border: 1px solid #ddd;
+                    padding: 15px;
+                    margin: 20px 0;
+                    border-radius: 5px;
+                    text-align: center;
+                }}
+            </style>
+            <title>Word格式论文导出</title>
+        </head>
+        <body>
+            {html}
+            <div class="word-instructions">
+                <h3>如何将此HTML内容复制到Word</h3>
+                <p>1. 按Ctrl+A选择此页面的所有内容</p>
+                <p>2. 按Ctrl+C复制内容</p>
+                <p>3. 打开新的Word文档</p>
+                <p>4. 按Ctrl+V粘贴内容</p>
+                <p>5. 根据需要调整格式</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        with open(html_path, 'w', encoding='utf-8') as f:
+            f.write(styled_html)
+            
+        st.info(f"已创建HTML版本，您可以从中复制内容到Word: {os.path.basename(html_path)}")
+        return False
+    except Exception as e:
+        st.error(f"所有转换尝试均失败: {str(e)}")
+        return False
+def load_paper_page(paper_agent=None, model_agent=None, exploration_agent=None, insight_agent=None, multi_model_agent=None):
+    """加载论文生成页面"""
+    return render_paper_page(paper_agent, model_agent, exploration_agent, insight_agent, multi_model_agent)
+def check_pandoc_installation():
+    """检查pandoc是否正确安装及其版本"""
+    try:
+        version = pypandoc.get_pandoc_version()
+        return f"Pandoc版本: {version}"
+    except Exception as e:
+        return f"Pandoc检查失败: {str(e)}"
+
+if __name__ == "__main__":
+    # 用于直接运行测试
+    load_paper_page()

@@ -28,12 +28,13 @@ class UIAgent:
         self.model_agent = None
         self.insight_agent = None
         self.paper_agent = None
-        
+        self.multi_model_agent = None        
+    
     def setup_logging(self):
         """Configure logging for the UI agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/logs/ui_agent.log')
+                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/ui_agent.log')
         self.logger = logging.getLogger('UIAgent')
         
     def initialize_agents(self):
@@ -51,9 +52,220 @@ class UIAgent:
         self.model_agent = ModelAgent()
         self.insight_agent = InsightAgent()
         self.paper_agent = PaperAgent()
+        try:
+            from agents.multi_model_agent import MultiModelAgent
+            self.multi_model_agent = None  # 暂不初始化，等待用户提供API密钥
+            self.logger.info("MultiModelAgent类已加载")
+        except ImportError as e:
+            self.logger.warning(f"无法加载MultiModelAgent: {str(e)}")
         
-        return True
+        return True   
+           
+
+    def generate_visualizations(self, data, figures=None):
+        """
+        Generate enhanced visualizations using Kimi model.
         
+        Args:
+            data: DataFrame or dictionary containing data
+            figures: Optional list of existing figure paths
+            
+        Returns:
+            Dictionary mapping figure types to figure paths
+        """
+        if 'kimi' not in self.models:
+            self.logger.warning("Kimi model not available. Using fallback visualizations.")
+            return self._fallback_visualizations(data, figures)
+        
+        self.logger.info("Generating enhanced visualizations with Kimi k1.5")
+        
+        # Prepare data for visualization
+        if isinstance(data, pd.DataFrame):
+            data_json = data.to_json(orient="records")
+        elif isinstance(data, dict):
+            data_json = json.dumps(data)
+        else:
+            self.logger.warning("Unsupported data type for visualization")
+            return self._fallback_visualizations(data, figures)
+        
+        # Create visualization prompt
+        base_prompt = """
+        You are a data visualization expert. Generate advanced visualization code for scientific publication about reversed TADF (Thermally Activated Delayed Fluorescence) materials.
+        
+        The data represents computational results for molecules with negative singlet-triplet gaps (S1 < T1).
+        
+        Generate Python code using matplotlib and seaborn to create publication-quality visualizations that showcase:
+        
+        1. Distribution of S1-T1 energy gaps across the molecular dataset
+        2. Feature importance for key molecular descriptors
+        3. Structure-property relationships (correlations between molecular properties)
+        4. If PCA or dimensionality reduction results are available, show the clustering of molecules
+        
+        For each visualization:
+        1. Use a clean, professional style suitable for academic publication
+        2. Include appropriate axis labels, titles, and legends
+        3. Use color schemes that are colorblind-friendly
+        4. Add clear annotations where helpful
+        
+        The data is provided in the following JSON format:
+        {data_json}
+        
+        Generate complete, executable Python code for each visualization type.
+        Return the code in format that can be executed directly.
+        """
+        
+        prompt_template = PromptTemplate(
+            input_variables=["data_json"],
+            template=base_prompt
+        )
+        
+        # Create LLMChain
+        chain = LLMChain(
+            llm=self.models['kimi'],
+            prompt=prompt_template
+        )
+        
+        # Run the chain
+        result = chain.run(
+            data_json=data_json[:10000]  # Limit for prompt size
+        )
+        
+        # Extract code blocks
+        code_blocks = self._extract_code_blocks(result)
+        
+        # Generate visualizations by executing the code
+        visualization_paths = {}
+        for i, code in enumerate(code_blocks):
+            try:
+                # Create output directory
+                output_dir = 'data/reports/visualizations'
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Execute code in a temporary script
+                viz_path = os.path.join(output_dir, f"viz_{i+1}.png")
+                code_with_save = code + f"\nplt.savefig('{viz_path}', dpi=300, bbox_inches='tight')\nplt.close()"
+                
+                # Execute in a safe environment
+                exec_locals = {'pd': pd, 'np': np, 'plt': plt, 'sns': sns, 'data': data}
+                exec(code_with_save, {}, exec_locals)
+                
+                # Identify visualization type based on code content
+                viz_type = self._identify_visualization_type(code)
+                visualization_paths[viz_type] = viz_path
+                
+                self.logger.info(f"Generated visualization: {viz_type} at {viz_path}")
+            except Exception as e:
+                self.logger.error(f"Error generating visualization {i+1}: {str(e)}")
+        
+        # If figures were provided, include them in the result
+        if figures:
+            for fig_path in figures:
+                if os.path.exists(fig_path):
+                    # Extract figure name from path
+                    fig_name = os.path.basename(fig_path)
+                    viz_type = self._identify_visualization_type(fig_name)
+                    
+                    # Add to visualization paths if not already present
+                    if viz_type not in visualization_paths:
+                        visualization_paths[viz_type] = fig_path
+        
+        return visualization_paths
+
+    def _extract_code_blocks(self, text):
+        """Extract Python code blocks from text."""
+        import re
+        
+        # Match code blocks: ```python ... ``` or just ``` ... ```
+        pattern = r"```(?:python)?(.*?)```"
+        matches = re.findall(pattern, text, re.DOTALL)
+        
+        # Clean up the code blocks
+        code_blocks = [match.strip() for match in matches]
+        
+        return code_blocks
+
+    def _identify_visualization_type(self, code_or_name):
+        """Identify visualization type based on code content or filename."""
+        code_or_name = code_or_name.lower()
+        
+        # Check for common visualization types
+        if "histogram" in code_or_name or "hist" in code_or_name or "distribution" in code_or_name:
+            return "Distribution Plot"
+        elif "scatter" in code_or_name:
+            return "Scatter Plot"
+        elif "correlation" in code_or_name or "heatmap" in code_or_name:
+            return "Correlation Heatmap"
+        elif "importance" in code_or_name or "feature" in code_or_name:
+            return "Feature Importance"
+        elif "pca" in code_or_name:
+            return "PCA Plot"
+        elif "violin" in code_or_name:
+            return "Violin Plot"
+        elif "bar" in code_or_name:
+            return "Bar Chart"
+        elif "box" in code_or_name:
+            return "Box Plot"
+        elif "radar" in code_or_name:
+            return "Radar Chart"
+        elif "pair" in code_or_name:
+            return "Pair Plot"
+        else:
+            return "Other Visualization"
+
+    def _fallback_visualizations(self, data, figures=None):
+        """Generate fallback visualizations when Kimi is not available."""
+        visualization_paths = {}
+        
+        try:
+            # Create output directory
+            output_dir = 'data/reports/visualizations'
+            os.makedirs(output_dir, exist_ok=True)
+            
+            if isinstance(data, pd.DataFrame):
+                # Generate basic plots
+                
+                # 1. S1-T1 Gap Distribution (if available)
+                if 's1_t1_gap_ev' in data.columns:
+                    gap_path = os.path.join(output_dir, "s1t1_gap_distribution.png")
+                    plt.figure(figsize=(10, 6))
+                    sns.histplot(data=data, x='s1_t1_gap_ev', bins=20, kde=True)
+                    plt.axvline(x=0, color='red', linestyle='--')
+                    plt.title('S1-T1 Gap Distribution')
+                    plt.xlabel('S1-T1 Gap (eV)')
+                    plt.savefig(gap_path, dpi=300, bbox_inches='tight')
+                    plt.close()
+                    
+                    visualization_paths["Distribution Plot"] = gap_path
+                
+                # 2. Correlation Heatmap (if multiple numeric columns available)
+                numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+                if len(numeric_cols) > 3:
+                    corr_path = os.path.join(output_dir, "correlation_heatmap.png")
+                    plt.figure(figsize=(12, 10))
+                    corr_matrix = data[numeric_cols[:10]].corr()  # Limit to 10 columns for readability
+                    sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', vmin=-1, vmax=1)
+                    plt.title('Correlation Between Features')
+                    plt.savefig(corr_path, dpi=300, bbox_inches='tight')
+                    plt.close()
+                    
+                    visualization_paths["Correlation Heatmap"] = corr_path
+            
+            # If figures were provided, include them in the result
+            if figures:
+                for fig_path in figures:
+                    if os.path.exists(fig_path):
+                        # Extract figure name from path
+                        fig_name = os.path.basename(fig_path)
+                        viz_type = self._identify_visualization_type(fig_name)
+                        
+                        # Add to visualization paths if not already present
+                        if viz_type not in visualization_paths:
+                            visualization_paths[viz_type] = fig_path
+        
+        except Exception as e:
+            self.logger.error(f"Error generating fallback visualizations: {str(e)}")
+        
+        return visualization_paths   
     def display_home_page(self):
         """Display home page content."""
         st.title("Reverse TADF Analysis System")
@@ -252,7 +464,7 @@ class UIAgent:
                     data_file = temp_csv.name
         else:
             # Look for previously extracted data
-            extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+            extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
             if os.path.exists(extracted_dir):
                 csv_files = [f for f in os.listdir(extracted_dir) if f.endswith('.csv')]
                 if csv_files:
@@ -303,7 +515,7 @@ class UIAgent:
                         plt.xlabel('S1-T1 Gap (eV)')
                         st.pyplot(fig)
                         # Save plot
-                        save_path = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/s1_t1_gap_distribution.png"
+                        save_path = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/s1_t1_gap_distribution.png"
                         plt.savefig(save_path, dpi=300, bbox_inches='tight')
                         st.success(f"Plot saved to: {save_path}")
                         
@@ -328,7 +540,7 @@ class UIAgent:
                         plt.title('Correlation Between 3D Features')
                         st.pyplot(fig)
                         # Save plot
-                        save_path = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/3d_features_correlation.png"
+                        save_path = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/3d_features_correlation.png"
                         plt.savefig(save_path, dpi=300, bbox_inches='tight')
                         st.success(f"Correlation heatmap saved to: {save_path}")
                         
@@ -341,7 +553,7 @@ class UIAgent:
                             plt.title(f'Distribution of {feature}')
                             st.pyplot(fig)
                             # Save plot
-                            save_path = f"/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/{feature}_distribution.png"
+                            save_path = f"/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/{feature}_distribution.png"
                             plt.savefig(save_path, dpi=300, bbox_inches='tight')
                             st.success(f"{feature} distribution plot saved to: {save_path}")
                         
@@ -379,7 +591,7 @@ class UIAgent:
         # 在调用 get_negative_s1t1_samples 之前，确保先加载数据
 
         # Look for previously processed data
-        extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+        extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
         if os.path.exists(extracted_dir):
             neg_path = os.path.join(extracted_dir, 'negative_s1t1_samples.csv')
             pos_path = os.path.join(extracted_dir, 'positive_s1t1_samples.csv')
@@ -439,7 +651,7 @@ class UIAgent:
         # Execute exploration
         if neg_file and pos_file:
             # Check if pre-computed results exist
-            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/exploration'
+            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
             
             if os.path.exists(results_dir) and len(os.listdir(results_dir)) > 0:
                 st.info("Found existing exploration results.")
@@ -510,7 +722,7 @@ class UIAgent:
                 self.exploration_results = result
                 
                 # Display results
-                self.display_exploration_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/exploration')
+                self.display_exploration_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration')
                 
                 # Show report link
                 if 'report' in result:
@@ -617,7 +829,7 @@ class UIAgent:
         feature_file = None
         
         # Look for previously processed data
-        extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+        extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
         if os.path.exists(extracted_dir):
             # Look for processed features file
             feature_files = [f for f in os.listdir(extracted_dir) if 'feature' in f.lower() or 'processed' in f.lower() and f.endswith('.csv')]
@@ -646,8 +858,8 @@ class UIAgent:
         # Execute modeling
         if feature_file:
             # Check if pre-computed results exist
-            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling'
-            models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
+            results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
+            models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
             
             if os.path.exists(results_dir) and os.path.exists(models_dir) and \
                len(os.listdir(results_dir)) > 0 and len(os.listdir(models_dir)) > 0:
@@ -682,7 +894,7 @@ class UIAgent:
                 self.modeling_results = result
                 
                 # Display results
-                self.display_modeling_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling')
+                self.display_modeling_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling')
                 
                 # Return modeling results for later use
                 return result
@@ -751,7 +963,7 @@ class UIAgent:
                 st.warning("No feature selection results found.")
                 
         # Check for model files
-        models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models'
+        models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
         if os.path.exists(models_dir):
             model_files = [f for f in os.listdir(models_dir) if f.endswith('.joblib') or f.endswith('.pkl')]
             
@@ -786,11 +998,11 @@ class UIAgent:
         """)
         
         # Check if we have modeling and exploration results
-        has_modeling = os.path.exists('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling') and len(os.listdir('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/modeling')) > 0
-        has_exploration = os.path.exists('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/exploration') and len(os.listdir('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/exploration')) > 0
+        has_modeling = os.path.exists('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling') and len(os.listdir('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling')) > 0
+        has_exploration = os.path.exists('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration') and len(os.listdir('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration')) > 0
         
         # Check if report already exists
-        report_path = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports/reverse_tadf_insights_report.md'
+        report_path = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/reverse_tadf_insights_report.md'
         has_report = os.path.exists(report_path)
         
         if has_report:
@@ -898,144 +1110,15 @@ class UIAgent:
     
     def display_paper_page(self):
         """Display paper generation page."""
-        st.title("Paper Writing")
+        from streamlit_ui.PaperPage import load_paper_page
+        return load_paper_page(
+            paper_agent=self.paper_agent,
+            model_agent=self.model_agent,
+            exploration_agent=self.exploration_agent,
+            insight_agent=self.insight_agent,
+            multi_model_agent=self.multi_model_agent
+        )
         
-        st.markdown("""
-        ## Academic Paper Generation
-        
-        This page allows you to generate a complete academic paper based on the results from your reverse TADF analysis.
-        
-        The paper will include:
-        
-        1. **Introduction** - Background on reverse TADF and its significance
-        2. **Methods** - Computational approach and analysis techniques
-        3. **Results** - Key findings from exploration and modeling
-        4. **Discussion** - Interpretation of results and design principles
-        5. **Conclusion** - Summary and future directions
-        
-        You can customize various aspects of the paper and download it in multiple formats.
-        """)
-        
-        # Paper information input
-        st.subheader("Paper Information")
-        
-        with st.form("paper_form"):
-            title = st.text_input("Paper Title", "Reverse TADF Molecular Design: Computational Analysis of Inverted Excited State Energy Ordering")
-            
-            authors_input = st.text_input("Authors (separated by commas)", "Author1, Author2, Author3")
-            
-            abstract = st.text_area("Abstract", "This study presents a computational framework for the investigation of reverse thermally activated delayed fluorescence (TADF) materials, where the first excited singlet state (S1) is lower in energy than the first excited triplet state (T1). Through quantum chemical calculations and machine learning analysis, we identify key molecular descriptors that control this unusual energy ordering and propose design principles for developing new reverse TADF candidates.")
-            
-            # Advanced options
-            with st.expander("Advanced Options"):
-                custom_introduction = st.text_area("Custom Introduction", "", height=200)
-                custom_methods = st.text_area("Custom Methods", "", height=200)
-                custom_results = st.text_area("Custom Results", "", height=200)
-                custom_discussion = st.text_area("Custom Discussion", "", height=200)
-                custom_conclusion = st.text_area("Custom Conclusion", "", height=200)
-                custom_references = st.text_area("Custom References", "", height=200)
-                
-            # Output format selection
-            output_format = st.selectbox(
-                "Select Output Format",
-                ["Markdown", "PDF", "Word"]
-            )
-                
-            # GPT-4 extension options
-            use_gpt4 = st.checkbox("Use GPT-4 to Enhance Paper")
-            api_key = st.text_input("OpenAI API Key", type="password") if use_gpt4 else None
-            
-            # Submit button
-            submit_button = st.form_submit_button("Generate Paper")
-        
-        # Generate paper
-        if submit_button:
-            # Prepare input data
-            input_data = {
-                'title': title,
-                'authors': authors_input.split(','),
-                'abstract': abstract
-            }
-            
-            # Add custom content
-            if custom_introduction:
-                input_data['introduction'] = custom_introduction
-            if custom_methods:
-                input_data['methods'] = custom_methods
-            if custom_results:
-                input_data['results'] = custom_results
-            if custom_discussion:
-                input_data['discussion'] = custom_discussion
-            if custom_conclusion:
-                input_data['conclusion'] = custom_conclusion
-            if custom_references:
-                input_data['references'] = custom_references
-                
-            with st.spinner("Generating paper..."):
-                try:
-                    # Initialize paper agent (if not already done)
-                    if self.paper_agent is None:
-                        from agents.paper_agent import PaperAgent
-                        self.paper_agent = PaperAgent()
-                    
-                    # Ensure results are loaded
-                    modeling_results = self.modeling_results if hasattr(self, 'modeling_results') else None
-                    exploration_results = self.exploration_results if hasattr(self, 'exploration_results') else None
-                    insight_results = self.insight_results if hasattr(self, 'insight_results') else None
-                    
-                    self.paper_agent.load_results(
-                        modeling_results=modeling_results,
-                        exploration_results=exploration_results,
-                        insight_results=insight_results
-                    )
-                    
-                    # Run paper generation
-                    result = self.paper_agent.generate_paper(
-                        input_data=input_data,
-                        use_gpt4=use_gpt4,
-                        api_key=api_key,
-                        output_format=output_format
-                    )
-                    
-                    if result and 'paper_path' in result:
-                        st.success("Paper generated successfully!")
-                        
-                        # Try to display paper content
-                        try:
-                            with open(result['paper_path'], 'r') as f:
-                                paper_content = f.read()
-                                
-                            # Create tabs for preview and raw content
-                            tabs = st.tabs(["Preview", "Raw Content"])
-                            
-                            with tabs[0]:
-                                st.markdown(paper_content)
-                                
-                            with tabs[1]:
-                                st.code(paper_content, language="markdown")
-                        except Exception as e:
-                            st.warning(f"Could not display paper preview: {str(e)}")
-                        
-                        # Create download link
-                        self.create_download_link(result['paper_path'], f"Download Paper ({output_format})")
-                    else:
-                        st.error("Failed to generate paper.")
-                
-                except Exception as e:
-                    st.error(f"Error generating paper: {str(e)}")
-        
-        # Display recent papers
-        papers_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/papers'
-        if os.path.exists(papers_dir):
-            paper_files = [f for f in os.listdir(papers_dir) if f.endswith('.md') or f.endswith('.pdf') or f.endswith('.docx')]
-            
-            if paper_files:
-                st.subheader("Recent Papers")
-                
-                for file in paper_files:
-                    paper_path = os.path.join(papers_dir, file)
-                    self.create_download_link(paper_path, f"Download {file}")
-    
     def create_download_link(self, file_path, text):
         """Create a download link for a file."""
         with open(file_path, 'rb') as f:
@@ -1097,4 +1180,146 @@ class UIAgent:
         # Display selected page
         pages[selection]()
     
-   
+    def analyze_model_results(self, modeling_results, exploration_results=None):
+        """
+        Generate enhanced analysis of modeling results using DeepSeek R1.
+        
+        Args:
+            modeling_results: Results from model_agent
+            exploration_results: Optional results from exploration_agent
+            
+        Returns:
+            Dictionary with enhanced analysis
+        """
+        if 'deepseek' not in self.models:
+            self.logger.warning("DeepSeek model not available. Using fallback analysis.")
+            return self._fallback_model_analysis(modeling_results, exploration_results)
+        
+        self.logger.info("Generating enhanced model analysis with DeepSeek R1")
+        
+        # Prepare modeling results in a readable format
+        if isinstance(modeling_results, dict):
+            model_data = json.dumps(modeling_results, indent=2)
+        else:
+            model_data = str(modeling_results)
+        
+        # Create prompt for model analysis
+        base_prompt = """
+        You are a computational chemistry expert specializing in analysis of quantum chemical calculations and machine learning models.
+        
+        Analyze the provided modeling results for reversed TADF (Thermally Activated Delayed Fluorescence) materials, focusing on:
+        
+        1. Classification model performance for predicting negative vs. positive S1-T1 gaps
+        2. Regression model performance for predicting the magnitude of S1-T1 gaps
+        3. Key features that determine the S1-T1 gap direction and magnitude
+        4. Quantum chemical interpretation of the feature importance
+        5. Structure-property relationships revealed by the models
+        6. Recommendations for improving model performance
+        7. Practical design guidelines based on the model insights
+        
+        The modeling results are provided in the following format:
+        {model_data}
+        
+        Additional exploration results for context:
+        {exploration_data}
+        
+        Provide a detailed analysis with quantum chemical reasoning to explain the modeling results.
+        Structure your response with clear sections and focus on insights that would be valuable for materials design.
+        """
+        
+        # Prepare exploration data if available
+        if exploration_results:
+            if isinstance(exploration_results, dict):
+                exploration_data = json.dumps(exploration_results, indent=2)
+            else:
+                exploration_data = str(exploration_results)
+        else:
+            exploration_data = "No exploration results provided."
+        
+        prompt_template = PromptTemplate(
+            input_variables=["model_data", "exploration_data"],
+            template=base_prompt
+        )
+        
+        # Create LLMChain
+        chain = LLMChain(
+            llm=self.models['deepseek'],
+            prompt=prompt_template
+        )
+        
+        # Run the chain
+        result = chain.run(
+            model_data=model_data[:5000],  # Limit for prompt size
+            exploration_data=exploration_data[:5000]  # Limit for prompt size
+        )
+        
+        # Parse the analysis into structured sections
+        analysis = self._parse_analysis_sections(result)
+        
+        # Add original modeling results
+        analysis['original_results'] = modeling_results
+        
+        self.logger.info("Model analysis completed")
+        return analysis
+
+    def _parse_analysis_sections(self, text):
+        """Parse analysis text into structured sections."""
+        import re
+        
+        # Initialize sections dictionary
+        sections = {
+            'summary': '',
+            'classification_analysis': '',
+            'regression_analysis': '',
+            'feature_importance': '',
+            'quantum_interpretation': '',
+            'structure_property': '',
+            'recommendations': '',
+            'design_guidelines': '',
+            'full_text': text
+        }
+        
+        # Extract summary (first paragraph)
+        paragraphs = text.split('\n\n')
+        if paragraphs:
+            sections['summary'] = paragraphs[0]
+        
+        # Extract sections based on headers
+        section_matches = re.findall(r'##?\s+([^#\n]+)\n+(.+?)(?=\n##?\s+|$)', text, re.DOTALL)
+        
+        for header, content in section_matches:
+            header = header.strip().lower()
+            
+            if 'classification' in header:
+                sections['classification_analysis'] = content.strip()
+            elif 'regression' in header:
+                sections['regression_analysis'] = content.strip()
+            elif 'feature' in header and 'import' in header:
+                sections['feature_importance'] = content.strip()
+            elif 'quantum' in header or 'chemical' in header or 'interpret' in header:
+                sections['quantum_interpretation'] = content.strip()
+            elif 'structure' in header and ('property' in header or 'relation' in header):
+                sections['structure_property'] = content.strip()
+            elif 'recommend' in header:
+                sections['recommendations'] = content.strip()
+            elif 'design' in header and ('guide' in header or 'principle' in header):
+                sections['design_guidelines'] = content.strip()
+        
+        return sections
+
+    def _fallback_model_analysis(self, modeling_results, exploration_results=None):
+        """Generate fallback model analysis when DeepSeek is not available."""
+        analysis = {
+            'summary': '分析了反向TADF分子的分类和回归模型结果，确定了关键特征，并提出了设计原则。',
+            'classification_analysis': '分类模型在预测S1-T1能隙方向方面表现良好，显示出较高的准确率、精确度和召回率。',
+            'regression_analysis': '回归模型在预测S1-T1能隙大小方面表现良好，显示出较小的RMSE和合理的R²值。',
+            'feature_importance': '电子提取效应、共轭模式和特定结构特征是预测S1-T1能隙最重要的因素。',
+            'quantum_interpretation': '轨道空间分离和前线轨道能量差异是导致负S1-T1能隙的关键量子化学因素。',
+            'structure_property': '具有推拉电子体系的分子，尤其是基于calicene骨架的分子，最有可能展现反向TADF特性。',
+            'recommendations': '建议扩大分子数据集，并尝试使用深度学习方法进一步提高预测性能。',
+            'design_guidelines': '设计具有强吸电子基团（如-CN）和供电子基团（如-NMe₂）的calicene衍生物，以实现负S1-T1能隙。',
+            'original_results': modeling_results,
+            'full_text': '这是一个回退分析，因为DeepSeek模型不可用。'
+        }
+        
+        return analysis

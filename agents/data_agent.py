@@ -14,7 +14,7 @@ class DataAgent:
     and extracting relevant molecular properties.
     """
     
-    def __init__(self, base_dir='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/logs'):
+    def __init__(self, base_dir='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs'):
         """Initialize the DataAgent with the base directory containing molecular data."""
         self.base_dir = base_dir
         self.setup_logging()
@@ -23,7 +23,7 @@ class DataAgent:
         """Configure logging for the data agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/logs/data_agent.log')
+                           filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/data_agent.log')
         self.logger = logging.getLogger('DataAgent')
         
     def extract_energy(self, log_file):
@@ -353,6 +353,14 @@ class DataAgent:
         # Import structure utils - surrounded by try/except to handle potential import errors
         try:
             from utils.structure_utils import StructureUtils
+            # 判断是否有RDKit可用
+            has_rdkit = False
+            try:
+                from rdkit import Chem
+                from rdkit.Chem import AllChem
+                has_rdkit = True
+            except ImportError:
+                self.logger.warning("RDKit not available, molecule structure analysis disabled")
         except ImportError as e:
             self.logger.error(f"Error importing StructureUtils: {str(e)}")
             # Create a simple placeholder if the import fails
@@ -367,6 +375,7 @@ class DataAgent:
                 def compare_structures(*args, **kwargs):
                     return {}
             StructureUtils = SimpleStructureUtils
+            has_rdkit = False
 
         # First scan to find lowest energy conformer
         for conf in conformers:
@@ -430,45 +439,143 @@ class DataAgent:
                     'avg_charge': charges['avg_charge']
                 })
 
-            # Extract molecular structure features - handle file errors gracefully
-            crest_xyz = os.path.join(molecule_dir, 'results', f'{state}_{conf}.xyz')
-            if not os.path.exists(crest_xyz):
-                # Handle missing CREST file without printing error
-                crest_xyz = None
-                # 尝试 results 目录中的文件
-                results_xyz = os.path.join(molecule_dir, 'results', f'{state}_{conf}.xyz')
-                if os.path.exists(results_xyz):
-                    crest_xyz = results_xyz
-                # 尝试 state 目录中的 crest_best.xyz
-                state_crest_best = os.path.join(molecule_dir, state, 'crest_best.xyz')
-                if os.path.exists(state_crest_best):
-                    crest_xyz = state_crest_best
-                # 尝试 state/crest 目录
-                state_crest_dir = os.path.join(molecule_dir, state, 'crest')
-                if os.path.exists(state_crest_dir):
-                    possible_files = glob.glob(os.path.join(state_crest_dir, "*.xyz"))
-                    if possible_files:
-                        crest_xyz = possible_files[0]  # 使用找到的第一个 XYZ 文件
-                
-            # Load molecule structure (prioritize Gaussian results, fallback to CREST structure)
-            try:
-                mol = StructureUtils.load_molecule_from_gaussian(log_file, 
-                                                            fallback_to_crest=True, 
-                                                            crest_xyz_file=crest_xyz)
-            except Exception as e:
-                self.logger.debug(f"Error loading molecule structure: {str(e)}")
-                mol = None
-            
-            # Calculate structure features if molecule was loaded successfully
-            if mol:
+            # 如果RDKit可用，尝试加载分子结构
+            if has_rdkit:
                 try:
-                    structure_features = StructureUtils.calculate_structure_features(mol)
-                    conf_data.update(structure_features)
+                    # 尝试查找XYZ文件的多种可能路径
+                    crest_xyz = None
+                    possible_paths = [
+                        os.path.join(molecule_dir, 'results', f'{state}_{conf}.xyz'),
+                        os.path.join(molecule_dir, 'results', f'{state}_results.xyz'),
+                        os.path.join(molecule_dir, state, 'crest_best.xyz'),
+                        os.path.join(molecule_dir, state, 'crest', f'{conf}.xyz'),
+                        os.path.join(molecule_dir, state, 'crest', 'crest_best.xyz')
+                    ]
+                    
+                    # 检查所有可能的路径
+                    for path in possible_paths:
+                        if os.path.exists(path):
+                            crest_xyz = path
+                            break
+                            
+                    # 如果未找到，尝试查找任何XYZ文件
+                    if crest_xyz is None:
+                        state_crest_dir = os.path.join(molecule_dir, state, 'crest')
+                        if os.path.exists(state_crest_dir):
+                            from glob import glob
+                            xyz_files = glob(os.path.join(state_crest_dir, "*.xyz"))
+                            if xyz_files:
+                                crest_xyz = xyz_files[0]
+                    
+                    # 尝试两种方式加载分子
+                    mol = None
+                    
+                    # 方法1: 从XYZ文件直接加载
+                    if crest_xyz is not None:
+                        try:
+                            # 直接从XYZ文件读取
+                            with open(crest_xyz, 'r') as f:
+                                xyz_content = f.read()
+                            
+                            # 检查XYZ格式是否正确
+                            lines = xyz_content.strip().split('\n')
+                            if len(lines) > 2:
+                                atom_count = int(lines[0].strip())
+                                if len(lines) >= atom_count + 2:
+                                    # 使用Chem.MolFromXYZBlock而不是MolFromXYZFile
+                                    mol = Chem.MolFromXYZBlock(xyz_content)
+                        except Exception as e:
+                            self.logger.debug(f"Error loading from XYZ block: {str(e)}")
+                    
+                    # 方法2: 通过StructureUtils加载
+                    if mol is None:
+                        try:
+                            # 使用最简单的调用方式
+                            mol = StructureUtils.load_molecule_from_gaussian(log_file)
+                        except Exception as e:
+                            self.logger.debug(f"Error using StructureUtils: {str(e)}")
+                    
+                    # 手动强制处理RDKit分子
+                    if mol is not None:
+                        try:
+                            # 确保环信息被初始化 - 多种方法尝试
+                            if not mol.GetNumAtoms():
+                                self.logger.debug("Molecule has no atoms, skipping")
+                                mol = None
+                            else:
+                                # 方法1: 强制更新属性缓存
+                                mol.UpdatePropertyCache(strict=False)
+                                
+                                # 方法2: 尝试强制计算环信息
+                                if hasattr(mol, 'RingInfo'):
+                                    ri = mol.GetRingInfo()
+                                    if hasattr(ri, 'Initialize'):
+                                        ri.Initialize()
+                                
+                                # 方法3: 尝试轻量级清理
+                                try:
+                                    Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_FINDRADICALS|
+                                                        Chem.SanitizeFlags.SANITIZE_KEKULIZE|
+                                                        Chem.SanitizeFlags.SANITIZE_SETAROMATICITY|
+                                                        Chem.SanitizeFlags.SANITIZE_SETCONJUGATION|
+                                                        Chem.SanitizeFlags.SANITIZE_SETHYBRIDIZATION|
+                                                        Chem.SanitizeFlags.SANITIZE_SYMMRINGS,
+                                                    catchErrors=True)
+                                except Exception as e:
+                                    self.logger.debug(f"Partial sanitization failed: {str(e)}")
+                                
+                                # 方法4: 创建新的分子拷贝
+                                try:
+                                    mol_copy = Chem.Mol(mol)
+                                    if mol_copy.GetNumAtoms() > 0:
+                                        # 确保环信息已计算
+                                        mol_copy.GetSSSR()
+                                        mol = mol_copy
+                                except Exception as e:
+                                    self.logger.debug(f"Molecule copy failed: {str(e)}")
+                                
+                                # 计算分子特征
+                                try:
+                                    # 使用简单结构特征计算
+                                    num_atoms = mol.GetNumAtoms()
+                                    num_bonds = mol.GetNumBonds()
+                                    
+                                    # 只提取基本特征，绕过RingInfo问题
+                                    basic_features = {
+                                        'num_atoms': num_atoms,
+                                        'num_bonds': num_bonds,
+                                        'formula': Chem.rdMolDescriptors.CalcMolFormula(mol),
+                                        'mol_weight': Chem.rdMolDescriptors.CalcExactMolWt(mol)
+                                    }
+                                    
+                                    # 尝试计算其他标准特征
+                                    try:
+                                        basic_features['num_rotatable_bonds'] = Chem.rdMolDescriptors.CalcNumRotatableBonds(mol)
+                                    except:
+                                        pass
+                                        
+                                    # 尝试计算总电荷
+                                    try:
+                                        total_formal_charge = sum([atom.GetFormalCharge() for atom in mol.GetAtoms()])
+                                        basic_features['total_formal_charge'] = total_formal_charge
+                                    except:
+                                        pass
+                                    
+                                    # 更新数据
+                                    conf_data.update(basic_features)
+                                    
+                                    # 如果StructureUtils可用，尝试使用它计算完整特征
+                                    if hasattr(StructureUtils, 'calculate_structure_features'):
+                                        structure_features = StructureUtils.calculate_structure_features(mol)
+                                        if structure_features:
+                                            conf_data.update(structure_features)
+                                except Exception as e:
+                                    self.logger.debug(f"Feature calculation failed: {str(e)}")
+                        except Exception as e:
+                            self.logger.debug(f"Molecule processing failed: {str(e)}")
                 except Exception as e:
-                    self.logger.debug(f"Error calculating structure features: {str(e)}")
-            else:
-                self.logger.debug(f"Could not load molecular structure for {molecule_dir}/{state}/{conf}")
-
+                    self.logger.debug(f"Error in molecular structure analysis: {str(e)}")
+            
             # For neutral state, also check excited state
             if state == 'neutral':
                 excited_log = os.path.join(conf_path, 'excited.log')
@@ -511,21 +618,20 @@ class DataAgent:
                     if excited_energy is not None and energy is not None:
                         conf_data['excitation_energy_ev'] = (excited_energy - energy) * 27.2114
                     
-                    # Analyze excited state structure if possible
-                    try:
-                        excited_mol = StructureUtils.load_molecule_from_gaussian(excited_log, fallback_to_crest=False)
-                        if excited_mol:
-                            excited_features = StructureUtils.calculate_structure_features(excited_mol)
-                            # Add prefix to distinguish excited state structure features
-                            excited_structure = {f'excited_{k}': v for k, v in excited_features.items()}
-                            conf_data.update(excited_structure)
-                            
-                            # Calculate changes between ground state and excited state structures
-                            if mol:
-                                structure_changes = StructureUtils.compare_structures(mol, excited_mol)
-                                conf_data.update(structure_changes)
-                    except Exception as e:
-                        self.logger.debug(f"Error processing excited state structure: {str(e)}")
+                    # 激发态分子结构分析 - 仅当RDKit可用时进行
+                    if has_rdkit:
+                        try:
+                            excited_mol = StructureUtils.load_molecule_from_gaussian(excited_log)
+                            if excited_mol and excited_mol.GetNumAtoms() > 0:
+                                # 计算基本特征
+                                excited_features = {
+                                    'excited_num_atoms': excited_mol.GetNumAtoms(),
+                                    'excited_num_bonds': excited_mol.GetNumBonds(),
+                                    'excited_mol_weight': Chem.rdMolDescriptors.CalcExactMolWt(excited_mol)
+                                }
+                                conf_data.update(excited_features)
+                        except Exception as e:
+                            self.logger.debug(f"Excited state structure analysis failed: {str(e)}")
                     
             # For neutral state with triplet data
             if state == 'neutral' and 'triplet' in os.listdir(molecule_dir):
@@ -544,29 +650,25 @@ class DataAgent:
                                 conf_data['s1_t1_gap_ev'] = t_s0_gap_ev
                                 conf_data['s1_t1_gap'] = t_s0_gap_ev
                         
-                        # Extract triplet state structure features with error handling
-                        try:
-                            triplet_mol = StructureUtils.load_molecule_from_gaussian(triplet_log, fallback_to_crest=False)
-                            if triplet_mol:
-                                triplet_features = StructureUtils.calculate_structure_features(triplet_mol)
-                                # Add prefix to distinguish triplet state structure features
-                                triplet_structure = {f'triplet_{k}': v for k, v in triplet_features.items()}
-                                conf_data.update(triplet_structure)
-                                
-                                # Calculate changes between ground state and triplet state structures
-                                if mol:
-                                    triplet_changes = StructureUtils.compare_structures(mol, triplet_mol)
-                                    # Add prefix to distinguish triplet state changes
-                                    triplet_changes = {f'triplet_{k}': v for k, v in triplet_changes.items()}
-                                    conf_data.update(triplet_changes)
-                        except Exception as e:
-                            self.logger.debug(f"Error processing triplet state structure: {str(e)}")
+                        # 三重态分子结构分析 - 仅当RDKit可用时进行
+                        if has_rdkit:
+                            try:
+                                triplet_mol = StructureUtils.load_molecule_from_gaussian(triplet_log)
+                                if triplet_mol and triplet_mol.GetNumAtoms() > 0:
+                                    # 计算基本特征
+                                    triplet_features = {
+                                        'triplet_num_atoms': triplet_mol.GetNumAtoms(),
+                                        'triplet_num_bonds': triplet_mol.GetNumBonds(),
+                                        'triplet_mol_weight': Chem.rdMolDescriptors.CalcExactMolWt(triplet_mol)
+                                    }
+                                    conf_data.update(triplet_features)
+                            except Exception as e:
+                                self.logger.debug(f"Triplet state structure analysis failed: {str(e)}")
                 
             all_conf_data.append(conf_data)
 
         return all_conf_data
 
-        return all_conf_data
     def process_molecules(self):
         """Process all molecules in the base directory."""
         # Find all molecule directories in parent directory
@@ -679,7 +781,7 @@ class DataAgent:
             df = pd.DataFrame(all_conformers_data)
             
             # Save all conformer detailed data
-            output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/extracted'
+            output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
             os.makedirs(output_dir, exist_ok=True)
             
             all_conf_file = os.path.join(output_dir, "all_conformers_data.csv")

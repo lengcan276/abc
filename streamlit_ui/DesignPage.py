@@ -92,7 +92,7 @@ def render_design_page(design_agent=None, model_agent=None):
     )
     
     # 模型路径
-    models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/models/'
+    models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models/'
     
     # 检查可用模型
     available_ml_models = []
@@ -258,7 +258,7 @@ def display_design_results(result):
                 st.pyplot(fig2)
             
             # 如果有其他图表，从文件加载
-            report_dir = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports"
+            report_dir = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
             if os.path.exists(os.path.join(report_dir, 'generated_gap_distribution.png')):
                 st.image(os.path.join(report_dir, 'generated_gap_distribution.png'))
             
