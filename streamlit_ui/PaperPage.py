@@ -117,8 +117,13 @@ def render_paper_page(paper_agent=None, model_agent=None, exploration_agent=None
             api_keys['glm'] = st.text_input("GLM API Key", type="password", help="用于GLM-4")
     
     # 检查是否有可用的图表和结果
+<<<<<<< HEAD
     exploration_results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
     modeling_results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
+=======
+    exploration_results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
+    modeling_results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
+>>>>>>> 0181d62 (update excited)
     has_exploration = os.path.exists(exploration_results_dir) and len(os.listdir(exploration_results_dir)) > 0
     has_modeling = os.path.exists(modeling_results_dir) and len(os.listdir(modeling_results_dir)) > 0
     
@@ -303,7 +308,11 @@ def render_paper_page(paper_agent=None, model_agent=None, exploration_agent=None
                     # 如果生成成功，保存并显示结果
                     if result and 'complete_paper' in result:
                         # 创建输出目录
+<<<<<<< HEAD
                         papers_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+=======
+                        papers_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+>>>>>>> 0181d62 (update excited)
                         os.makedirs(papers_dir, exist_ok=True)
                         
                         # 生成输出文件名
@@ -440,7 +449,11 @@ def render_paper_page(paper_agent=None, model_agent=None, exploration_agent=None
                 st.info("如果遇到依赖相关错误，请参考环境信息并尝试重新安装依赖包。")
                 
     # 显示最近生成的论文
+<<<<<<< HEAD
     papers_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+=======
+    papers_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+>>>>>>> 0181d62 (update excited)
     if os.path.exists(papers_dir):
         paper_files = [f for f in os.listdir(papers_dir) if f.endswith('.md') or f.endswith('.pdf') or f.endswith('.docx')]
         

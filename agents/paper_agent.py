@@ -45,7 +45,11 @@ class PaperAgent:
         """Configure logging for the paper agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+<<<<<<< HEAD
                            filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/paper_agent.log')
+=======
+                           filename='/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/paper_agent.log')
+>>>>>>> 0181d62 (update excited)
         self.logger = logging.getLogger('PaperAgent')
         
     def query_deepresearch(self, query, max_results=10):
@@ -712,7 +716,11 @@ class PaperAgent:
                 self.generated_sections["results"] = f"# Results and Discussion\n\n{input_data['results']}"
             else:
                 # Collect figure info first for results generation
+<<<<<<< HEAD
                 reports_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports'
+=======
+                reports_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports'
+>>>>>>> 0181d62 (update excited)
                 figure_info = []
                 
                 # Check various result directories
@@ -844,7 +852,11 @@ class PaperAgent:
                 self.logger.warning("API test failed, proceeding with original content")
         
         # Find and collect all analysis figures from the system
+<<<<<<< HEAD
         reports_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports'
+=======
+        reports_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports'
+>>>>>>> 0181d62 (update excited)
         figure_info = []
         
         # Check various result directories
@@ -902,7 +914,11 @@ class PaperAgent:
         self.figures = figure_info
         
         # Create output directory
+<<<<<<< HEAD
         output_dir = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers"
+=======
+        output_dir = "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers"
+>>>>>>> 0181d62 (update excited)
         os.makedirs(output_dir, exist_ok=True)
             
         # Generate paper in requested format
@@ -1782,7 +1798,11 @@ class PaperAgent:
                                     # 检查自动创建的reports目录
                                     else:
                                         for reports_dir in ["exploration", "modeling", "feature_analysis"]:
+<<<<<<< HEAD
                                             check_path = os.path.join("/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+=======
+                                            check_path = os.path.join("/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+>>>>>>> 0181d62 (update excited)
                                             if os.path.exists(check_path):
                                                 actual_path = check_path
                                                 break
@@ -2059,7 +2079,11 @@ class PaperAgent:
                                                 # Check reports directory
                                                 else:
                                                     for reports_dir in ["exploration", "modeling", "feature_analysis"]:
+<<<<<<< HEAD
                                                         check_path = os.path.join("/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+=======
+                                                        check_path = os.path.join("/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+>>>>>>> 0181d62 (update excited)
                                                         if os.path.exists(check_path):
                                                             actual_path = check_path
                                                             break
@@ -2116,7 +2140,11 @@ class PaperAgent:
                                                 # Check reports directory
                                                 else:
                                                     for reports_dir in ["exploration", "modeling", "feature_analysis"]:
+<<<<<<< HEAD
                                                         check_path = os.path.join("/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+=======
+                                                        check_path = os.path.join("/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+>>>>>>> 0181d62 (update excited)
                                                         if os.path.exists(check_path):
                                                             actual_path = check_path
                                                             break
@@ -2174,7 +2202,11 @@ class PaperAgent:
                                             actual_path = img_name
                                         else:
                                             for reports_dir in ["exploration", "modeling", "feature_analysis"]:
+<<<<<<< HEAD
                                                 check_path = os.path.join("/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+=======
+                                                check_path = os.path.join("/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+>>>>>>> 0181d62 (update excited)
                                                 if os.path.exists(check_path):
                                                     actual_path = check_path
                                                     break
@@ -2219,7 +2251,11 @@ class PaperAgent:
                                             actual_path = img_name
                                         else:
                                             for reports_dir in ["exploration", "modeling", "feature_analysis"]:
+<<<<<<< HEAD
                                                 check_path = os.path.join("/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+=======
+                                                check_path = os.path.join("/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports", reports_dir, img_name)
+>>>>>>> 0181d62 (update excited)
                                                 if os.path.exists(check_path):
                                                     actual_path = check_path
                                                     break
@@ -2478,7 +2514,11 @@ class PaperAgent:
         output_files = {}
         
         # Create output directory
+<<<<<<< HEAD
         output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+=======
+        output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(output_dir, exist_ok=True)
         
         # Generate paper sections

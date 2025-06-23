@@ -39,7 +39,11 @@ def render_modeling_page(model_agent=None):
     feature_file = None
     
     # Look for previously processed data
+<<<<<<< HEAD
     extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+=======
+    extracted_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+>>>>>>> 0181d62 (update excited)
     if os.path.exists(extracted_dir):
         # Look for processed features file
         feature_files = [f for f in os.listdir(extracted_dir) if ('feature' in f.lower() or 'processed' in f.lower()) and f.endswith('.csv')]
@@ -68,8 +72,13 @@ def render_modeling_page(model_agent=None):
     # Execute modeling
     if feature_file:
         # Check if pre-computed results exist
+<<<<<<< HEAD
         results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
         models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+=======
+        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
+        models_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+>>>>>>> 0181d62 (update excited)
         
         if os.path.exists(results_dir) and os.path.exists(models_dir) and \
            len(os.listdir(results_dir)) > 0 and len(os.listdir(models_dir)) > 0:
@@ -99,7 +108,11 @@ def run_modeling_analysis(feature_file, model_agent):
                     st.success("Modeling analysis completed.")
                     
                     # Display results
+<<<<<<< HEAD
                     display_modeling_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling')
+=======
+                    display_modeling_results('/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling')
+>>>>>>> 0181d62 (update excited)
                     
                     # Return modeling results
                     return result
@@ -174,7 +187,11 @@ def display_modeling_results(results_dir):
             st.warning("No feature selection results found.")
             
     # Check for model files
+<<<<<<< HEAD
     models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+=======
+    models_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+>>>>>>> 0181d62 (update excited)
     if os.path.exists(models_dir):
         model_files = [f for f in os.listdir(models_dir) if f.endswith('.joblib') or f.endswith('.pkl')]
         

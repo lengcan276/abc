@@ -441,7 +441,11 @@ class DesignAgent:
         # 添加自动查找模型文件的逻辑
         if predictive_model_path is None:
             # 尝试自动查找分类模型和回归模型
+<<<<<<< HEAD
             model_dir = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models"
+=======
+            model_dir = "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models"
+>>>>>>> 0181d62 (update excited)
             classifier_path = os.path.join(model_dir, "s1t1_gap_classifier.joblib")
             regressor_path = os.path.join(model_dir, "s1t1_gap_regressor.joblib")
             
@@ -476,7 +480,11 @@ class DesignAgent:
         """Configure logging for the design agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+<<<<<<< HEAD
                            filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/design_agent.log')
+=======
+                           filename='/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/design_agent.log')
+>>>>>>> 0181d62 (update excited)
         self.logger = logging.getLogger('DesignAgent')
         
     def create_basic_model(self):
@@ -697,7 +705,11 @@ class DesignAgent:
             self.logger.info("RL模型训练完成")
             
             # 保存模型
+<<<<<<< HEAD
             model_dir = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models"
+=======
+            model_dir = "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models"
+>>>>>>> 0181d62 (update excited)
             os.makedirs(model_dir, exist_ok=True)
             self.rl_model.save(os.path.join(model_dir, "rl_model"))
             return True
@@ -878,7 +890,11 @@ class DesignAgent:
             results_df = pd.DataFrame(results)
             
             # 保存结果
+<<<<<<< HEAD
             report_dir = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+=======
+            report_dir = "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+>>>>>>> 0181d62 (update excited)
             os.makedirs(report_dir, exist_ok=True)
             results_df.to_csv(os.path.join(report_dir, "generated_molecules.csv"), index=False)
             
@@ -886,7 +902,11 @@ class DesignAgent:
         else:
             return None
         
+<<<<<<< HEAD
     def visualize_results(self, results_df, output_dir="/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"):
+=======
+    def visualize_results(self, results_df, output_dir="/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"):
+>>>>>>> 0181d62 (update excited)
         """可视化生成的分子结果"""
         os.makedirs(output_dir, exist_ok=True)
         
@@ -959,12 +979,20 @@ class DesignAgent:
             return {
                 'molecules': molecules,
                 'results_df': results_df,
+<<<<<<< HEAD
                 'report_path': "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/generated_molecules.csv"
+=======
+                'report_path': "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/generated_molecules.csv"
+>>>>>>> 0181d62 (update excited)
             }
         except Exception as e:
             self.logger.error(f"运行分子设计流程时出错: {e}")
             # 尝试恢复并返回部分结果
             return {
                 'error': str(e),
+<<<<<<< HEAD
                 'report_path': "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/generated_molecules.csv"
+=======
+                'report_path': "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/generated_molecules.csv"
+>>>>>>> 0181d62 (update excited)
             }

@@ -19,7 +19,11 @@ def debug_data_files():
     import pandas as pd
     
     # 检查分子特性摘要文件
+<<<<<<< HEAD
     summary_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/molecular_properties_summary.csv'
+=======
+    summary_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/molecular_properties_summary.csv'
+>>>>>>> 0181d62 (update excited)
     if os.path.exists(summary_file):
         df = pd.read_csv(summary_file)
         print(f"分子特性摘要文件包含 {len(df)} 行和 {len(df.columns)} 列")
@@ -43,7 +47,11 @@ def debug_data_files():
         print(f"警告：摘要文件 {summary_file} 不存在")
     
     # 检查负能隙样本文件
+<<<<<<< HEAD
     neg_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/negative_s1t1_samples.csv'
+=======
+    neg_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/negative_s1t1_samples.csv'
+>>>>>>> 0181d62 (update excited)
     if os.path.exists(neg_file):
         df = pd.read_csv(neg_file)
         print(f"负能隙样本文件包含 {len(df)} 行和 {len(df.columns)} 列")
@@ -57,7 +65,11 @@ def debug_data_files():
         print(f"警告：负能隙样本文件 {neg_file} 不存在")
     
     # 检查正能隙样本文件
+<<<<<<< HEAD
     pos_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/positive_s1t1_samples.csv'
+=======
+    pos_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/positive_s1t1_samples.csv'
+>>>>>>> 0181d62 (update excited)
     if os.path.exists(pos_file):
         df = pd.read_csv(pos_file)
         print(f"正能隙样本文件包含 {len(df)} 行和 {len(df.columns)} 列")

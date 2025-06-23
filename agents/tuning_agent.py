@@ -302,7 +302,11 @@ class TuningAgent:
         
     def setup_logging(self):
         """配置日志记录"""
+<<<<<<< HEAD
         log_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs'
+=======
+        log_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(log_dir, exist_ok=True)
         
         logging.basicConfig(level=logging.INFO,
@@ -518,7 +522,11 @@ class TuningAgent:
             return None
             
         # 创建结果目录
+<<<<<<< HEAD
         results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/tuning'
+=======
+        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/tuning'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(results_dir, exist_ok=True)
         
         # 创建数据集
@@ -784,7 +792,11 @@ class TuningAgent:
                 print(f"预测图已保存到: {prediction_plot_path}")
             
             # 保存模型
+<<<<<<< HEAD
             model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+=======
+            model_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+>>>>>>> 0181d62 (update excited)
             os.makedirs(model_dir, exist_ok=True)
             
             model_path = os.path.join(model_dir, f'{target_col}_{"classifier" if is_classification else "regressor"}.pt')
@@ -866,11 +878,19 @@ class TuningAgent:
             return {"status": "error", "message": "未提供数据文件"}
                 
         # 创建结果目录
+<<<<<<< HEAD
         results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/tuning'
         os.makedirs(results_dir, exist_ok=True)
             
         # 创建模型目录
         model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+=======
+        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/tuning'
+        os.makedirs(results_dir, exist_ok=True)
+            
+        # 创建模型目录
+        model_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(model_dir, exist_ok=True)
             
         # 打印数据框信息以便调试

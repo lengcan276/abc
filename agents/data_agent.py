@@ -7,6 +7,7 @@ from glob import glob
 import logging
 from tqdm import tqdm
 import time
+import traceback
 
 class DataAgent:
     """
@@ -14,7 +15,11 @@ class DataAgent:
     and extracting relevant molecular properties.
     """
     
+<<<<<<< HEAD
     def __init__(self, base_dir='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs'):
+=======
+    def __init__(self, base_dir='/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs'):
+>>>>>>> 0181d62 (update excited)
         """Initialize the DataAgent with the base directory containing molecular data."""
         self.base_dir = base_dir
         self.setup_logging()
@@ -23,7 +28,11 @@ class DataAgent:
         """Configure logging for the data agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+<<<<<<< HEAD
                            filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/data_agent.log')
+=======
+                           filename='/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/data_agent.log')
+>>>>>>> 0181d62 (update excited)
         self.logger = logging.getLogger('DataAgent')
         
     def extract_energy(self, log_file):
@@ -284,6 +293,143 @@ class DataAgent:
             self.logger.error(f"Error extracting excitation energy {log_file}: {e}")
 
         return None, None, None
+    
+    def extract_all_excited_states(self, log_file):
+        """
+        提取所有激发态信息，包括高阶激发态
+        基于wB97X-D/def2-TZVP计算结果
+        """
+        if not os.path.exists(log_file):
+            return None
+            
+        try:
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            
+            # 存储所有激发态
+            states = {
+                'singlets': [],
+                'triplets': [],
+                'all_states': []
+            }
+            
+            # 正则表达式匹配激发态
+            state_pattern = r'Excited State\s+(\d+):\s+(Singlet|Triplet)-?(\S*)\s+([\d.]+)\s+eV\s+([\d.]+)\s+nm\s+f=([\d.]+)'
+            
+            # 提取激发态详细信息
+            for match in re.finditer(state_pattern, content):
+                state_info = {
+                    'number': int(match.group(1)),
+                    'multiplicity': match.group(2),
+                    'symmetry': match.group(3) if match.group(3) else 'A',
+                    'energy_ev': float(match.group(4)),
+                    'wavelength_nm': float(match.group(5)),
+                    'osc_strength': float(match.group(6)),
+                    'transitions': []
+                }
+                
+                # 提取该激发态的轨道跃迁信息
+                state_num = state_info['number']
+                transition_section = re.search(
+                    rf'Excited State\s+{state_num}:.*?(?=Excited State|\s*SavETr:|\Z)',
+                    content,
+                    re.DOTALL
+                )
+                
+                if transition_section:
+                    # 匹配轨道跃迁 (例如: 123 -> 124    0.70532)
+                    trans_pattern = r'(\d+)\s*->\s*(\d+)\s+([-\d.]+)'
+                    for trans_match in re.finditer(trans_pattern, transition_section.group(0)):
+                        state_info['transitions'].append({
+                            'from': int(trans_match.group(1)),
+                            'to': int(trans_match.group(2)),
+                            'coefficient': float(trans_match.group(3))
+                        })
+                
+                # 分类存储
+                states['all_states'].append(state_info)
+                if state_info['multiplicity'] == 'Singlet':
+                    states['singlets'].append(state_info)
+                else:
+                    states['triplets'].append(state_info)
+            
+            # 自动识别可能的反转能隙
+            states['inverted_gaps'] = self.find_inverted_gaps(states)
+            
+            return states
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting excited states from {log_file}: {e}")
+            return None
+
+    def find_inverted_gaps(self, states):
+        """
+        寻找所有可能的反转单重态-三重态能隙
+        不限于S1-T1，包括S2-T4, S3-T4等
+        """
+        inverted_pairs = []
+        
+        singlets = states['singlets']
+        triplets = states['triplets']
+        
+        # 检查所有可能的单重态-三重态组合
+        for i, singlet in enumerate(singlets):
+            for j, triplet in enumerate(triplets):
+                gap = singlet['energy_ev'] - triplet['energy_ev']
+                
+                # 如果单重态能量低于三重态（反转）
+                if gap < 0:
+                    # 计算跃迁相似度
+                    similarity = self.calculate_transition_similarity(
+                        singlet['transitions'], 
+                        triplet['transitions']
+                    )
+                    
+                    inverted_pairs.append({
+                        'type': f"S{i+1}-T{j+1}",
+                        'singlet_state': i + 1,
+                        'triplet_state': j + 1,
+                        'singlet_energy': singlet['energy_ev'],
+                        'triplet_energy': triplet['energy_ev'],
+                        'gap': gap,
+                        'gap_meV': gap * 1000,  # 转换为meV
+                        'singlet_symmetry': singlet['symmetry'],
+                        'triplet_symmetry': triplet['symmetry'],
+                        'transition_similarity': similarity,
+                        'singlet_osc_strength': singlet['osc_strength']
+                    })
+        
+        # 按能隙大小排序（最负的在前）
+        inverted_pairs.sort(key=lambda x: x['gap'])
+        
+        return inverted_pairs
+
+    def calculate_transition_similarity(self, trans1, trans2):
+        """计算两个激发态之间的跃迁相似度"""
+        if not trans1 or not trans2:
+            return 0.0
+        
+        # 创建跃迁字典
+        dict1 = {(t['from'], t['to']): abs(t['coefficient']) for t in trans1}
+        dict2 = {(t['from'], t['to']): abs(t['coefficient']) for t in trans2}
+        
+        # 找到共同的跃迁
+        common_transitions = set(dict1.keys()) & set(dict2.keys())
+        
+        if not common_transitions:
+            return 0.0
+        
+        # 计算余弦相似度
+        numerator = sum(dict1[t] * dict2[t] for t in common_transitions)
+        denom1 = sum(dict1[t]**2 for t in dict1.keys())**0.5
+        denom2 = sum(dict2[t]**2 for t in dict2.keys())**0.5
+        
+        if denom1 * denom2 == 0:
+            return 0.0
+            
+        similarity = numerator / (denom1 * denom2)
+        
+        return similarity
     
     def extract_crest_results(self, results_file):
         """Extract energy and conformer data from CREST results file."""
@@ -585,7 +731,53 @@ class DataAgent:
                     excited_has_imaginary = self.check_imaginary_freq(excited_log)
                     excited_homo, excited_lumo = self.extract_homo_lumo(excited_log)
                     excited_dipole = self.extract_dipole(excited_log)
-                    s1_energy, osc_strength, t1_energy = self.extract_excitation_energy(excited_log)
+                    
+                    # 使用新的全激发态提取方法
+                    all_excited_states = self.extract_all_excited_states(excited_log)
+                    
+                    if all_excited_states:
+                        # 保存完整的激发态信息
+                        conf_data['all_excited_states'] = all_excited_states
+                        
+                        # 提取S1和T1信息（向后兼容）
+                        if all_excited_states['singlets']:
+                            s1_state = all_excited_states['singlets'][0]
+                            conf_data['s1_energy_ev'] = s1_state['energy_ev']
+                            conf_data['oscillator_strength'] = s1_state['osc_strength']
+                        
+                        if all_excited_states['triplets']:
+                            t1_state = all_excited_states['triplets'][0]
+                            conf_data['t1_energy_ev'] = t1_state['energy_ev']
+                        
+                        # 保存所有反转能隙信息
+                        if all_excited_states['inverted_gaps']:
+                            conf_data['inverted_gaps'] = all_excited_states['inverted_gaps']
+                            
+                            # 找到最重要的反转能隙（能隙最负的）
+                            primary_inversion = all_excited_states['inverted_gaps'][0]
+                            conf_data['primary_inversion_type'] = primary_inversion['type']
+                            conf_data['primary_inversion_gap'] = primary_inversion['gap']
+                            conf_data['primary_inversion_gap_meV'] = primary_inversion['gap_meV']
+                            
+                            # 如果主要反转是S1-T1，则保持向后兼容
+                            if primary_inversion['type'] == 'S1-T1':
+                                conf_data['s1_t1_gap_ev'] = primary_inversion['gap']
+                                conf_data['s1_t1_gap'] = primary_inversion['gap']
+                    else:
+                        # 使用原始方法作为后备
+                        s1_energy, osc_strength, t1_energy = self.extract_excitation_energy(excited_log)
+                        
+                        if s1_energy is not None:
+                            conf_data['s1_energy_ev'] = s1_energy
+                        if osc_strength is not None:
+                            conf_data['oscillator_strength'] = osc_strength
+                        if t1_energy is not None:
+                            conf_data['t1_energy_ev'] = t1_energy
+                        
+                        # Calculate S1-T1 gap
+                        if s1_energy is not None and t1_energy is not None:
+                            conf_data['s1_t1_gap_ev'] = s1_energy - t1_energy
+                            conf_data['s1_t1_gap'] = s1_energy - t1_energy
 
                     # Convert to eV
                     excited_homo_ev = excited_homo * 27.2114 if excited_homo is not None else None
@@ -599,20 +791,6 @@ class DataAgent:
                     conf_data['excited_lumo'] = excited_lumo_ev
                     conf_data['excited_homo_lumo_gap'] = excited_homo_lumo_gap
                     conf_data['excited_dipole'] = excited_dipole
-
-                    # Add excitation energy and oscillator strength
-                    if s1_energy is not None:
-                        conf_data['s1_energy_ev'] = s1_energy
-                    if osc_strength is not None:
-                        conf_data['oscillator_strength'] = osc_strength
-                    if t1_energy is not None:
-                        conf_data['t1_energy_ev'] = t1_energy
-
-                    # Calculate S1-T1 gap
-                    if s1_energy is not None and t1_energy is not None:
-                        conf_data['s1_t1_gap_ev'] = s1_energy - t1_energy
-                        # Add this line as a backup, in case the system looks for other variable names
-                        conf_data['s1_t1_gap'] = s1_energy - t1_energy
 
                     # Calculate excitation energy directly from energy difference
                     if excited_energy is not None and energy is not None:
@@ -781,7 +959,11 @@ class DataAgent:
             df = pd.DataFrame(all_conformers_data)
             
             # Save all conformer detailed data
+<<<<<<< HEAD
             output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+=======
+            output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+>>>>>>> 0181d62 (update excited)
             os.makedirs(output_dir, exist_ok=True)
             
             all_conf_file = os.path.join(output_dir, "all_conformers_data.csv")
@@ -851,6 +1033,26 @@ class DataAgent:
 
                         # For neutral state, add excited state info
                         if state == 'neutral':
+                            # 添加完整激发态信息 - 增加类型检查
+                            if 'all_excited_states' in primary_conf:
+                                all_states = primary_conf['all_excited_states']
+                                # 确保 all_states 是字典类型
+                                if isinstance(all_states, dict):
+                                    # 保存激发态数量信息
+                                    molecule_data['num_singlet_states'] = len(all_states.get('singlets', []))
+                                    molecule_data['num_triplet_states'] = len(all_states.get('triplets', []))
+                                    molecule_data['num_inverted_gaps'] = len(all_states.get('inverted_gaps', []))
+                                else:
+                                    # 如果不是字典，记录警告并跳过
+                                    self.logger.warning(f"all_excited_states for {molecule} is not a dict but {type(all_states)}")
+                            
+                            # 保存主要反转信息
+                            if 'primary_inversion_type' in primary_conf and not pd.isna(primary_conf['primary_inversion_type']):
+                                molecule_data['primary_inversion_type'] = primary_conf['primary_inversion_type']
+                                molecule_data['primary_inversion_gap'] = primary_conf.get('primary_inversion_gap')
+                                molecule_data['primary_inversion_gap_meV'] = primary_conf.get('primary_inversion_gap_meV')
+                            
+                            # 保留原有的激发态信息字段
                             for excited_col in [c for c in primary_conf.keys()
                                             if c.startswith('excited_') or
                                             c in ['s1_energy_ev', 'oscillator_strength',
@@ -861,20 +1063,22 @@ class DataAgent:
 
             # Calculate ionization energy (if relevant data available)
             if 'neutral_energy' in molecule_data and 'cation_energy' in molecule_data:
-                molecule_data['ionization_energy_ev'] = (molecule_data['cation_energy'] -
-                                                    molecule_data['neutral_energy']) * 27.2114
-                print(f"    {molecule} Ionization Energy: {molecule_data['ionization_energy_ev']} eV")
+                if molecule_data['neutral_energy'] is not None and molecule_data['cation_energy'] is not None:
+                    molecule_data['ionization_energy_ev'] = (molecule_data['cation_energy'] -
+                                                        molecule_data['neutral_energy']) * 27.2114
+                    print(f"    {molecule} Ionization Energy: {molecule_data['ionization_energy_ev']} eV")
 
             # Calculate triplet gap (if relevant data available)
             if 'neutral_energy' in molecule_data and 'triplet_energy' in molecule_data:
-                triplet_gap = (molecule_data['triplet_energy'] - molecule_data['neutral_energy']) * 27.2114
-                molecule_data['triplet_gap_ev'] = triplet_gap
-                print(f"    {molecule} Triplet Gap: {molecule_data['triplet_gap_ev']} eV")
-                
-                # 确保我们同时有s1_t1_gap_ev值
-                if 's1_t1_gap_ev' not in molecule_data or molecule_data['s1_t1_gap_ev'] is None:
-                    molecule_data['s1_t1_gap_ev'] = triplet_gap
-                    molecule_data['s1_t1_gap'] = triplet_gap
+                if molecule_data['neutral_energy'] is not None and molecule_data['triplet_energy'] is not None:
+                    triplet_gap = (molecule_data['triplet_energy'] - molecule_data['neutral_energy']) * 27.2114
+                    molecule_data['triplet_gap_ev'] = triplet_gap
+                    print(f"    {molecule} Triplet Gap: {molecule_data['triplet_gap_ev']} eV")
+                    
+                    # 确保我们同时有s1_t1_gap_ev值
+                    if 's1_t1_gap_ev' not in molecule_data or molecule_data['s1_t1_gap_ev'] is None:
+                        molecule_data['s1_t1_gap_ev'] = triplet_gap
+                        molecule_data['s1_t1_gap'] = triplet_gap
 
             # 添加辅助检查，确保s1_t1_gap_ev存在
             if 's1_energy_ev' in molecule_data and 't1_energy_ev' in molecule_data:
@@ -903,11 +1107,41 @@ class DataAgent:
                 # 打印负值计数，便于确认
                 negative_count = (summary_df['s1_t1_gap_ev'] < 0).sum()
                 print(f"Found {negative_count} molecules with negative S1-T1 gaps")
+            
+            # 打印反转能隙统计
+            if 'num_inverted_gaps' in summary_df.columns:
+                molecules_with_inversions = (summary_df['num_inverted_gaps'] > 0).sum()
+                total_inversions = summary_df['num_inverted_gaps'].sum()
+                print(f"Found {molecules_with_inversions} molecules with inverted gaps")
+                print(f"Total inverted gap pairs: {total_inversions}")
 
             # Save summary data
             summary_file = os.path.join(output_dir, "molecular_properties_summary.csv")
             summary_df.to_csv(summary_file, index=False)
             print(f"Molecular property summary saved to {summary_file}")
+            
+            # 额外保存一个专门的反转能隙分析文件
+            if 'primary_inversion_type' in summary_df.columns:
+                # 添加额外的过滤条件，确保数据有效
+                inversion_df = summary_df[
+                    (summary_df['num_inverted_gaps'] > 0) & 
+                    (summary_df['primary_inversion_type'].notna())
+                ]
+                
+                if not inversion_df.empty:
+                    # 选择相关列，并确保它们存在
+                    cols_to_keep = ['Molecule']
+                    for col in ['primary_inversion_type', 'primary_inversion_gap', 
+                            'primary_inversion_gap_meV', 'num_inverted_gaps']:
+                        if col in inversion_df.columns:
+                            cols_to_keep.append(col)
+                    
+                    inversion_df = inversion_df[cols_to_keep].sort_values('primary_inversion_gap')
+                    
+                    inversion_file = os.path.join(output_dir, "inverted_gap_analysis.csv")
+                    inversion_df.to_csv(inversion_file, index=False)
+                    print(f"Inverted gap analysis saved to {inversion_file}")
+            
             return summary_file
         
         return None

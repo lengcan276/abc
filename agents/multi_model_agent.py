@@ -63,7 +63,11 @@ class MultiModelAgent:
         """Configure logging for the multi-model agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+<<<<<<< HEAD
                            filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/multi_model_agent.log')
+=======
+                           filename='/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/multi_model_agent.log')
+>>>>>>> 0181d62 (update excited)
         self.logger = logging.getLogger('MultiModelAgent')
         
     def initialize_models(self):
@@ -881,8 +885,13 @@ class MultiModelAgent:
                                                         for reports_dir in ["exploration", "modeling", "feature_analysis", "visualizations"]:
                                                             # Try different parent paths to find the images
                                                             for parent_path in [
+<<<<<<< HEAD
                                                                 "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports",
                                                                 "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+=======
+                                                                "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports",
+                                                                "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+>>>>>>> 0181d62 (update excited)
                                                             ]:
                                                                 check_path = os.path.join(parent_path, reports_dir, img_name)
                                                                 if os.path.exists(check_path):
@@ -945,8 +954,13 @@ class MultiModelAgent:
                                                         for reports_dir in ["exploration", "modeling", "feature_analysis", "visualizations"]:
                                                             # Try different parent paths to find the images
                                                             for parent_path in [
+<<<<<<< HEAD
                                                                 "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports",
                                                                 "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+=======
+                                                                "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports",
+                                                                "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+>>>>>>> 0181d62 (update excited)
                                                             ]:
                                                                 check_path = os.path.join(parent_path, reports_dir, img_name)
                                                                 if os.path.exists(check_path):
@@ -1011,8 +1025,13 @@ class MultiModelAgent:
                                                 for reports_dir in ["exploration", "modeling", "feature_analysis", "visualizations"]:
                                                     # Try different parent paths to find the images
                                                     for parent_path in [
+<<<<<<< HEAD
                                                         "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports",
                                                         "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+=======
+                                                        "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports",
+                                                        "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+>>>>>>> 0181d62 (update excited)
                                                     ]:
                                                         check_path = os.path.join(parent_path, reports_dir, img_name)
                                                         if os.path.exists(check_path):
@@ -1064,8 +1083,13 @@ class MultiModelAgent:
                                                 for reports_dir in ["exploration", "modeling", "feature_analysis", "visualizations"]:
                                                     # Try different parent paths to find the images
                                                     for parent_path in [
+<<<<<<< HEAD
                                                         "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports",
                                                         "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+=======
+                                                        "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system/data/reports",
+                                                        "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports"
+>>>>>>> 0181d62 (update excited)
                                                     ]:
                                                         check_path = os.path.join(parent_path, reports_dir, img_name)
                                                         if os.path.exists(check_path):
@@ -1478,9 +1502,15 @@ class MultiModelAgent:
         self.visualizations = {}
         
         # Check for available visualizations
+<<<<<<< HEAD
         exploration_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
         modeling_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
         viz_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/visualizations'
+=======
+        exploration_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
+        modeling_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
+        viz_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/visualizations'
+>>>>>>> 0181d62 (update excited)
         
         # Create visualization directory if it doesn't exist
         os.makedirs(viz_dir, exist_ok=True)
@@ -1626,7 +1656,11 @@ class MultiModelAgent:
         
         try:
             # Save generated paper
+<<<<<<< HEAD
             output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+=======
+            output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/papers'
+>>>>>>> 0181d62 (update excited)
             os.makedirs(output_dir, exist_ok=True)
             
             # Save Markdown version
@@ -1685,9 +1719,15 @@ class MultiModelAgent:
                                 // Try different relative paths
                                 const relativePaths = [
                                     'reports/visualizations/' + fileName,
+<<<<<<< HEAD
                                     '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/visualizations/' + fileName,
                                     '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration/' + fileName,
                                     '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling/' + fileName
+=======
+                                    '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/visualizations/' + fileName,
+                                    '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration/' + fileName,
+                                    '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling/' + fileName
+>>>>>>> 0181d62 (update excited)
                                 ];
                                 
                                 let pathIndex = 0;
@@ -2216,7 +2256,11 @@ Reverse thermally activated delayed fluorescence (TADF) materials, characterized
                     visualization_paths[viz_type] = fig_path
         
         # Ensure output directory exists
+<<<<<<< HEAD
         output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/visualizations'
+=======
+        output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/visualizations'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(output_dir, exist_ok=True)
         
         # Create DataFrame from provided data
@@ -3076,7 +3120,11 @@ Reverse thermally activated delayed fluorescence (TADF) materials, characterized
             import seaborn as sns
             
             # 创建输出目录
+<<<<<<< HEAD
             output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/visualizations'
+=======
+            output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/visualizations'
+>>>>>>> 0181d62 (update excited)
             os.makedirs(output_dir, exist_ok=True)
             
             # 尝试将数据转换为DataFrame

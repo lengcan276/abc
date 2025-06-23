@@ -38,12 +38,20 @@ class ExplorationAgent:
         if neg_file:
             self.neg_file = neg_file
         else:
+<<<<<<< HEAD
             self.neg_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/negative_s1t1_samples.csv'
+=======
+            self.neg_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/negative_s1t1_samples.csv'
+>>>>>>> 0181d62 (update excited)
         
         if pos_file:
             self.pos_file = pos_file
         else:
+<<<<<<< HEAD
             self.pos_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/positive_s1t1_samples.csv'
+=======
+            self.pos_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/positive_s1t1_samples.csv'
+>>>>>>> 0181d62 (update excited)
         
         # 尝试加载数据
         try:
@@ -123,7 +131,11 @@ class ExplorationAgent:
         print("===========================\n")
       
         # Create results directory
+<<<<<<< HEAD
         results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
+=======
+        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(results_dir, exist_ok=True)
         
         # 检查是否存在 s1_t1_gap_ev 列
@@ -546,7 +558,11 @@ class ExplorationAgent:
             return None
             
         # Create report directory
+<<<<<<< HEAD
         report_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports'
+=======
+        report_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(report_dir, exist_ok=True)
         
         report_path = os.path.join(report_dir, 'reverse_tadf_exploration_report.md')

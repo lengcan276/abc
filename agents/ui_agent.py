@@ -34,7 +34,11 @@ class UIAgent:
         """Configure logging for the UI agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+<<<<<<< HEAD
                            filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/ui_agent.log')
+=======
+                           filename='/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/ui_agent.log')
+>>>>>>> 0181d62 (update excited)
         self.logger = logging.getLogger('UIAgent')
         
     def initialize_agents(self):
@@ -464,7 +468,11 @@ class UIAgent:
                     data_file = temp_csv.name
         else:
             # Look for previously extracted data
+<<<<<<< HEAD
             extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+=======
+            extracted_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+>>>>>>> 0181d62 (update excited)
             if os.path.exists(extracted_dir):
                 csv_files = [f for f in os.listdir(extracted_dir) if f.endswith('.csv')]
                 if csv_files:
@@ -515,7 +523,11 @@ class UIAgent:
                         plt.xlabel('S1-T1 Gap (eV)')
                         st.pyplot(fig)
                         # Save plot
+<<<<<<< HEAD
                         save_path = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/s1_t1_gap_distribution.png"
+=======
+                        save_path = "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/s1_t1_gap_distribution.png"
+>>>>>>> 0181d62 (update excited)
                         plt.savefig(save_path, dpi=300, bbox_inches='tight')
                         st.success(f"Plot saved to: {save_path}")
                         
@@ -540,7 +552,11 @@ class UIAgent:
                         plt.title('Correlation Between 3D Features')
                         st.pyplot(fig)
                         # Save plot
+<<<<<<< HEAD
                         save_path = "/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/3d_features_correlation.png"
+=======
+                        save_path = "/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/3d_features_correlation.png"
+>>>>>>> 0181d62 (update excited)
                         plt.savefig(save_path, dpi=300, bbox_inches='tight')
                         st.success(f"Correlation heatmap saved to: {save_path}")
                         
@@ -553,7 +569,11 @@ class UIAgent:
                             plt.title(f'Distribution of {feature}')
                             st.pyplot(fig)
                             # Save plot
+<<<<<<< HEAD
                             save_path = f"/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/{feature}_distribution.png"
+=======
+                            save_path = f"/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/{feature}_distribution.png"
+>>>>>>> 0181d62 (update excited)
                             plt.savefig(save_path, dpi=300, bbox_inches='tight')
                             st.success(f"{feature} distribution plot saved to: {save_path}")
                         
@@ -591,7 +611,11 @@ class UIAgent:
         # 在调用 get_negative_s1t1_samples 之前，确保先加载数据
 
         # Look for previously processed data
+<<<<<<< HEAD
         extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+=======
+        extracted_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+>>>>>>> 0181d62 (update excited)
         if os.path.exists(extracted_dir):
             neg_path = os.path.join(extracted_dir, 'negative_s1t1_samples.csv')
             pos_path = os.path.join(extracted_dir, 'positive_s1t1_samples.csv')
@@ -651,7 +675,11 @@ class UIAgent:
         # Execute exploration
         if neg_file and pos_file:
             # Check if pre-computed results exist
+<<<<<<< HEAD
             results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
+=======
+            results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
+>>>>>>> 0181d62 (update excited)
             
             if os.path.exists(results_dir) and len(os.listdir(results_dir)) > 0:
                 st.info("Found existing exploration results.")
@@ -722,7 +750,11 @@ class UIAgent:
                 self.exploration_results = result
                 
                 # Display results
+<<<<<<< HEAD
                 self.display_exploration_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration')
+=======
+                self.display_exploration_results('/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration')
+>>>>>>> 0181d62 (update excited)
                 
                 # Show report link
                 if 'report' in result:
@@ -829,7 +861,11 @@ class UIAgent:
         feature_file = None
         
         # Look for previously processed data
+<<<<<<< HEAD
         extracted_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+=======
+        extracted_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+>>>>>>> 0181d62 (update excited)
         if os.path.exists(extracted_dir):
             # Look for processed features file
             feature_files = [f for f in os.listdir(extracted_dir) if 'feature' in f.lower() or 'processed' in f.lower() and f.endswith('.csv')]
@@ -858,8 +894,13 @@ class UIAgent:
         # Execute modeling
         if feature_file:
             # Check if pre-computed results exist
+<<<<<<< HEAD
             results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
             models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+=======
+            results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling'
+            models_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+>>>>>>> 0181d62 (update excited)
             
             if os.path.exists(results_dir) and os.path.exists(models_dir) and \
                len(os.listdir(results_dir)) > 0 and len(os.listdir(models_dir)) > 0:
@@ -894,7 +935,11 @@ class UIAgent:
                 self.modeling_results = result
                 
                 # Display results
+<<<<<<< HEAD
                 self.display_modeling_results('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling')
+=======
+                self.display_modeling_results('/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling')
+>>>>>>> 0181d62 (update excited)
                 
                 # Return modeling results for later use
                 return result
@@ -963,7 +1008,11 @@ class UIAgent:
                 st.warning("No feature selection results found.")
                 
         # Check for model files
+<<<<<<< HEAD
         models_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+=======
+        models_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+>>>>>>> 0181d62 (update excited)
         if os.path.exists(models_dir):
             model_files = [f for f in os.listdir(models_dir) if f.endswith('.joblib') or f.endswith('.pkl')]
             
@@ -998,11 +1047,19 @@ class UIAgent:
         """)
         
         # Check if we have modeling and exploration results
+<<<<<<< HEAD
         has_modeling = os.path.exists('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling') and len(os.listdir('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling')) > 0
         has_exploration = os.path.exists('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration') and len(os.listdir('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration')) > 0
         
         # Check if report already exists
         report_path = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/reverse_tadf_insights_report.md'
+=======
+        has_modeling = os.path.exists('/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling') and len(os.listdir('/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/modeling')) > 0
+        has_exploration = os.path.exists('/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration') and len(os.listdir('/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration')) > 0
+        
+        # Check if report already exists
+        report_path = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/reverse_tadf_insights_report.md'
+>>>>>>> 0181d62 (update excited)
         has_report = os.path.exists(report_path)
         
         if has_report:

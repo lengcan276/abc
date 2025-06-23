@@ -22,13 +22,19 @@ class FeatureAgent:
         self.df = None
         self.feature_df = None
         self.alt_3d_features = None
+        self.reversed_gap_df = None  # 新增：存储反转能隙数据
+        self.output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'  # 新增：输出目录
         self.setup_logging()
         
     def setup_logging(self):
         """Configure logging for the feature agent."""
         logging.basicConfig(level=logging.INFO, 
                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+<<<<<<< HEAD
                            filename='/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/feature_agent.log')
+=======
+                           filename='/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs/feature_agent.log')
+>>>>>>> 0181d62 (update excited)
         self.logger = logging.getLogger('FeatureAgent')
         
     def load_data(self, file_path=None):
@@ -612,7 +618,11 @@ class FeatureAgent:
         self.feature_df = feature_df
         
         # 保存处理后的特征
+<<<<<<< HEAD
         output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+=======
+        output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(output_dir, exist_ok=True)
         features_file = os.path.join(output_dir, "processed_features.csv")
         feature_df.to_csv(features_file, index=False)
@@ -642,7 +652,11 @@ class FeatureAgent:
                 break
         
         # 保存原始数据的副本，用于调试
+<<<<<<< HEAD
         self.feature_df.to_csv('/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/original_feature_df.csv', index=False)
+=======
+        self.feature_df.to_csv('/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/original_feature_df.csv', index=False)
+>>>>>>> 0181d62 (update excited)
         print(f"原始数据形状: {self.feature_df.shape}")
         print(f"列名: {self.feature_df.columns.tolist()}")
         
@@ -702,7 +716,11 @@ class FeatureAgent:
                 positive_gap['gap_type'] = 'Positive'
                 
                 # 确保输出目录存在
+<<<<<<< HEAD
                 output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+=======
+                output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+>>>>>>> 0181d62 (update excited)
                 os.makedirs(output_dir, exist_ok=True)
                 
                 # 保存处理后的样本
@@ -785,7 +803,11 @@ class FeatureAgent:
                 example_df.loc[i, 'gap_type'] = 'Positive'
         
         # 确保输出目录存在
+<<<<<<< HEAD
         output_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+=======
+        output_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted'
+>>>>>>> 0181d62 (update excited)
         os.makedirs(output_dir, exist_ok=True)
         
         # 保存示例数据
@@ -803,7 +825,445 @@ class FeatureAgent:
             'negative_count': 5,
             'positive_count': 5
         }
+    def extract_reversed_gap_features(self):
+        """提取反转能隙相关的特征"""
+        print("提取反转单重态-三重态能隙特征...")
         
+        if self.df is None:
+            self.logger.error("No data loaded.")
+            return None
+        
+        # 创建新的特征DataFrame
+        reversed_gap_features = []
+        
+        # 按分子分组处理
+        for molecule in self.df['Molecule'].unique():
+            mol_data = self.df[self.df['Molecule'] == molecule]
+            
+            # 获取中性态的激发态数据
+            neutral_data = mol_data[mol_data['State'] == 'neutral']
+            
+            for _, row in neutral_data.iterrows():
+                # 检查是否有激发态计算结果
+                if 'excited_states' in row and row['excited_states'] is not None:
+                    states = row['excited_states']
+                    
+                    # 提取所有反转能隙
+                    inverted_gaps = states.get('inverted_gaps', [])
+                    
+                    # 找到最显著的反转（最负的能隙）
+                    if inverted_gaps:
+                        primary_gap = inverted_gaps[0]  # 已按能隙排序
+                        
+                        feature_dict = {
+                            'Molecule': molecule,
+                            'conformer': row.get('conformer', 'conf_1'),
+                            
+                            # 主要反转能隙信息
+                            'primary_gap_type': primary_gap['type'],
+                            'primary_gap_ev': primary_gap['gap'],
+                            'primary_gap_meV': primary_gap['gap_meV'],
+                            'singlet_state': primary_gap['singlet_state'],
+                            'triplet_state': primary_gap['triplet_state'],
+                            
+                            # 能量信息
+                            'singlet_energy': primary_gap['singlet_energy'],
+                            'triplet_energy': primary_gap['triplet_energy'],
+                            
+                            # 对称性和相似度
+                            'symmetry_match': primary_gap['singlet_symmetry'] == primary_gap['triplet_symmetry'],
+                            'transition_similarity': primary_gap['transition_similarity'],
+                            
+                            # 其他反转能隙信息
+                            'num_inverted_gaps': len(inverted_gaps),
+                            'has_s1_t1_inversion': any(g['type'] == 'S1-T1' for g in inverted_gaps),
+                            'has_higher_state_inversion': any(g['singlet_state'] > 1 or g['triplet_state'] > 1 for g in inverted_gaps)
+                        }
+                        
+                        # 添加分子结构特征
+                        for col in self.df.columns:
+                            if col.startswith('has_') or col in ['estimated_conjugation', 'electron_withdrawing_effect', 
+                                                                'electron_donating_effect', 'planarity_index']:
+                                feature_dict[col] = row.get(col, 0)
+                        
+                        reversed_gap_features.append(feature_dict)
+        
+        # 创建DataFrame
+        self.reversed_gap_df = pd.DataFrame(reversed_gap_features)
+        
+        # 保存结果
+        os.makedirs(self.output_dir, exist_ok=True)
+        output_file = os.path.join(self.output_dir, 'reversed_gap_features.csv')
+        self.reversed_gap_df.to_csv(output_file, index=False)
+        
+        print(f"找到 {len(self.reversed_gap_df)} 个具有反转能隙的分子构象")
+        if len(self.reversed_gap_df) > 0:
+            print(f"反转能隙类型分布:")
+            print(self.reversed_gap_df['primary_gap_type'].value_counts())
+        
+        return self.reversed_gap_df
+
+    def classify_inverted_gaps(self):
+        """
+        根据文献标准对反转能隙进行分类
+        参考您的基准测试结果
+        """
+        if self.reversed_gap_df is None:
+            self.extract_reversed_gap_features()
+        
+        if self.reversed_gap_df is None or len(self.reversed_gap_df) == 0:
+            print("没有反转能隙数据可供分类")
+            return None
+        
+        # 定义分类标准
+        def classify_gap(row):
+            gap_type = row['primary_gap_type']
+            gap_value = row['primary_gap_ev']
+            similarity = row['transition_similarity']
+            
+            # Hund规则反转 (如Calicene的S3-T4)
+            if gap_type in ['S3-T4', 'S4-T5'] and similarity > 0.7:
+                return 'Hund_rule_inversion'
+            
+            # 推拉取代效应 (如含CN或NMe2的S2-T4)
+            elif gap_type == 'S2-T4':
+                if row.get('has_cn', 0) > 0:
+                    return 'Pull_substituted'
+                elif row.get('has_nme2', 0) > 0 or row.get('has_nh2', 0) > 0:
+                    return 'Push_substituted'
+            
+            # 推拉共轭体系 (如S1-T1反转)
+            elif gap_type == 'S1-T1' and row.get('has_cn', 0) > 0 and \
+                (row.get('has_nme2', 0) > 0 or row.get('has_nh2', 0) > 0):
+                return 'Push_pull_substituted'
+            
+            # 高相似度的其他反转
+            elif similarity > 0.8:
+                return 'High_similarity_inversion'
+            
+            else:
+                return 'Other_inversion'
+        
+        # 应用分类
+        self.reversed_gap_df['inversion_class'] = self.reversed_gap_df.apply(classify_gap, axis=1)
+        
+        # 添加与文献对比的标记
+        self.reversed_gap_df['literature_type'] = self.reversed_gap_df.apply(
+            lambda row: self.match_literature_pattern(row), axis=1
+        )
+        
+        # 保存分类后的结果
+        output_file = os.path.join(self.output_dir, 'classified_reversed_gaps.csv')
+        self.reversed_gap_df.to_csv(output_file, index=False)
+        print(f"分类结果已保存到: {output_file}")
+        
+        # 打印分类统计
+        print("\n反转能隙分类统计:")
+        print(self.reversed_gap_df['inversion_class'].value_counts())
+        
+        return self.reversed_gap_df
+
+    def match_literature_pattern(self, row):
+        """匹配文献中报道的反转模式"""
+        # 基于您的基准测试中的分子
+        literature_patterns = {
+            'calicene': {'gap_type': 'S3-T4', 'gap_range': (-0.12, -0.08)},
+            '3ring_cn': {'gap_type': 'S2-T4', 'gap_range': (-0.04, -0.02)},
+            '5ring_nme2': {'gap_type': 'S2-T4', 'gap_range': (-0.02, -0.01)},
+            '5ring_nme2_3ring_cn': {'gap_type': 'S1-T1', 'gap_range': (-0.015, -0.008)},
+            '5ring_npme3_3ring_cn': {'gap_type': 'S1-T1', 'gap_range': (-0.016, -0.010)}
+        }
+        
+        mol_name_lower = row['Molecule'].lower()
+        
+        for pattern_name, pattern_info in literature_patterns.items():
+            if pattern_name in mol_name_lower:
+                if (row['primary_gap_type'] == pattern_info['gap_type'] and 
+                    pattern_info['gap_range'][0] <= row['primary_gap_ev'] <= pattern_info['gap_range'][1]):
+                    return f"Literature_match_{pattern_name}"
+        
+        return "New_pattern"
+
+    def get_all_inverted_gap_samples(self):
+        """
+        提取所有类型的反转能隙样本（不仅仅是S1-T1）
+        包括 S1-T1, S2-T4, S3-T4 等
+        """
+        if self.feature_df is None:
+            self.logger.error("没有可用的特征数据。请先调用 preprocess_data() 方法。")
+            return None
+        
+        print("正在搜索所有类型的反转能隙...")
+        
+        # 初始化结果容器
+        all_inverted_samples = []
+        inverted_types_count = {}
+        
+        # 1. 首先检查是否有 excited_states 列（包含所有激发态信息）
+        if 'excited_states' in self.feature_df.columns:
+            print("从 excited_states 列提取反转能隙信息...")
+            
+            for idx, row in self.feature_df.iterrows():
+                if pd.notna(row.get('excited_states')):
+                    excited_states = row['excited_states']
+                    
+                    # 检查是否是字典类型（而不是字符串）
+                    if isinstance(excited_states, dict):
+                        # 检查是否有反转能隙
+                        if 'inverted_gaps' in excited_states and excited_states['inverted_gaps']:
+                            for gap_info in excited_states['inverted_gaps']:
+                                inverted_sample = {
+                                    'Molecule': row['Molecule'],
+                                    'State': row.get('State', 'neutral'),
+                                    'conformer': row.get('conformer', 'conf_1'),
+                                    'gap_type': gap_info['type'],
+                                    'gap_value_ev': gap_info['gap'],
+                                    'gap_value_meV': gap_info['gap_meV'],
+                                    'singlet_state': gap_info['singlet_state'],
+                                    'triplet_state': gap_info['triplet_state'],
+                                    'singlet_energy': gap_info['singlet_energy'],
+                                    'triplet_energy': gap_info['triplet_energy'],
+                                    'transition_similarity': gap_info['transition_similarity'],
+                                    'singlet_symmetry': gap_info.get('singlet_symmetry', ''),
+                                    'triplet_symmetry': gap_info.get('triplet_symmetry', ''),
+                                    'gap_category': 'Inverted'
+                                }
+                                
+                                # 添加分子特征
+                                for col in self.feature_df.columns:
+                                    if col.startswith(('has_', 'estimated_', 'electron_', 'planarity')):
+                                        inverted_sample[col] = row.get(col, np.nan)
+                                
+                                all_inverted_samples.append(inverted_sample)
+                                
+                                # 统计反转类型
+                                gap_type = gap_info['type']
+                                inverted_types_count[gap_type] = inverted_types_count.get(gap_type, 0) + 1
+        
+        # 2. 如果没有 excited_states 列，尝试从单独的能隙列提取
+        else:
+            print("从独立的能隙列提取反转信息...")
+            
+            # 查找所有可能的能隙列
+            gap_columns = []
+            for col in self.feature_df.columns:
+                if any(pattern in col.lower() for pattern in ['s1_t1', 's2_t4', 's3_t4', 'gap', 'singlet_triplet']):
+                    # 检查列是否包含数值数据
+                    if self.feature_df[col].dtype in ['float64', 'int64', 'float32', 'int32']:
+                        gap_columns.append(col)
+                    else:
+                        # 尝试转换为数值
+                        try:
+                            # 先尝试转换一个样本值
+                            test_val = pd.to_numeric(self.feature_df[col].iloc[0], errors='coerce')
+                            if not pd.isna(test_val):
+                                gap_columns.append(col)
+                        except:
+                            print(f"跳过非数值列: {col}")
+            
+            print(f"找到数值能隙列: {gap_columns}")
+            
+            # 检查每个能隙列
+            for gap_col in gap_columns:
+                try:
+                    # 确保列数据是数值类型
+                    gap_data = pd.to_numeric(self.feature_df[gap_col], errors='coerce')
+                    
+                    # 提取能隙类型
+                    gap_type = 'Unknown'
+                    if 's1_t1' in gap_col.lower():
+                        gap_type = 'S1-T1'
+                    elif 's2_t4' in gap_col.lower():
+                        gap_type = 'S2-T4'
+                    elif 's3_t4' in gap_col.lower():
+                        gap_type = 'S3-T4'
+                    
+                    # 找到负值（反转）样本
+                    negative_mask = (gap_data < 0) & (gap_data.notna())
+                    negative_indices = self.feature_df.index[negative_mask]
+                    
+                    for idx in negative_indices:
+                        row = self.feature_df.loc[idx]
+                        inverted_sample = {
+                            'Molecule': row['Molecule'],
+                            'State': row.get('State', 'neutral'),
+                            'conformer': row.get('conformer', 'conf_1'),
+                            'gap_type': gap_type,
+                            'gap_value_ev': gap_data.loc[idx],
+                            'gap_value_meV': gap_data.loc[idx] * 1000,
+                            'gap_category': 'Inverted',
+                            'source_column': gap_col
+                        }
+                        
+                        # 添加其他相关信息
+                        for col in ['singlet_energy', 'triplet_energy', 'transition_similarity',
+                                's1_energy_ev', 't1_energy_ev', 's2_energy_ev', 't4_energy_ev']:
+                            if col in row:
+                                inverted_sample[col] = row[col]
+                        
+                        # 添加分子特征
+                        for col in self.feature_df.columns:
+                            if col.startswith(('has_', 'estimated_', 'electron_', 'planarity')):
+                                inverted_sample[col] = row.get(col, np.nan)
+                        
+                        all_inverted_samples.append(inverted_sample)
+                        inverted_types_count[gap_type] = inverted_types_count.get(gap_type, 0) + 1
+                        
+                except Exception as e:
+                    print(f"处理列 {gap_col} 时出错: {e}")
+                    continue
+        
+        # 3. 特殊处理：如果有 triplet_gap_ev 列（可能包含各种反转）
+        if 'triplet_gap_ev' in self.feature_df.columns:
+            print("检查 triplet_gap_ev 列...")
+            try:
+                # 确保是数值类型
+                triplet_gap_data = pd.to_numeric(self.feature_df['triplet_gap_ev'], errors='coerce')
+                
+                negative_mask = (triplet_gap_data < 0) & (triplet_gap_data.notna())
+                negative_indices = self.feature_df.index[negative_mask]
+                
+                for idx in negative_indices:
+                    row = self.feature_df.loc[idx]
+                    # 避免重复
+                    if not any(s['Molecule'] == row['Molecule'] and 
+                            s.get('conformer') == row.get('conformer', 'conf_1') 
+                            for s in all_inverted_samples):
+                        inverted_sample = {
+                            'Molecule': row['Molecule'],
+                            'State': row.get('State', 'neutral'),
+                            'conformer': row.get('conformer', 'conf_1'),
+                            'gap_type': 'S1-T1',  # 默认类型
+                            'gap_value_ev': triplet_gap_data.loc[idx],
+                            'gap_value_meV': triplet_gap_data.loc[idx] * 1000,
+                            'gap_category': 'Inverted',
+                            'source_column': 'triplet_gap_ev'
+                        }
+                        
+                        # 添加分子特征
+                        for col in self.feature_df.columns:
+                            if col.startswith(('has_', 'estimated_', 'electron_', 'planarity')):
+                                inverted_sample[col] = row.get(col, np.nan)
+                        
+                        all_inverted_samples.append(inverted_sample)
+                        inverted_types_count['S1-T1'] = inverted_types_count.get('S1-T1', 0) + 1
+            except Exception as e:
+                print(f"处理 triplet_gap_ev 列时出错: {e}")
+        
+        # 转换为DataFrame
+        if all_inverted_samples:
+            inverted_df = pd.DataFrame(all_inverted_samples)
+            
+            # 添加一些统计信息
+            inverted_df['is_s1_t1'] = inverted_df['gap_type'] == 'S1-T1'
+            inverted_df['is_higher_state'] = inverted_df['gap_type'].isin(['S2-T4', 'S3-T4', 'S4-T5'])
+            
+            # 按能隙值排序（最负的在前）
+            inverted_df = inverted_df.sort_values('gap_value_ev')
+            
+            # 打印统计信息
+            print(f"\n找到 {len(inverted_df)} 个反转能隙样本")
+            print(f"反转类型分布:")
+            for gap_type, count in inverted_types_count.items():
+                print(f"  - {gap_type}: {count} 个样本")
+            
+            # 打印一些具体例子
+            print(f"\n最显著的反转能隙（前10个）:")
+            for idx, row in inverted_df.head(10).iterrows():
+                print(f"  * {row['Molecule']} ({row['gap_type']}): {row['gap_value_ev']:.4f} eV ({row['gap_value_meV']:.1f} meV)")
+            
+            # 为了对比，也获取正常（非反转）样本
+            normal_samples = []
+            
+            # 从相同的数据源获取正常样本
+            for gap_col in gap_columns:
+                try:
+                    gap_data = pd.to_numeric(self.feature_df[gap_col], errors='coerce')
+                    positive_mask = (gap_data > 0) & (gap_data.notna())
+                    
+                    # 限制正常样本数量
+                    sample_size = min(max(10, len(inverted_df) // 2), positive_mask.sum())
+                    if sample_size > 0:
+                        positive_indices = self.feature_df.index[positive_mask].to_list()
+                        sampled_indices = pd.Series(positive_indices).sample(n=sample_size, random_state=42).to_list()
+                        
+                        for idx in sampled_indices:
+                            row = self.feature_df.loc[idx]
+                            
+                            # 提取能隙类型
+                            gap_type = 'S1-T1'  # 默认
+                            if 's2_t4' in gap_col.lower():
+                                gap_type = 'S2-T4'
+                            elif 's3_t4' in gap_col.lower():
+                                gap_type = 'S3-T4'
+                            
+                            normal_sample = {
+                                'Molecule': row['Molecule'],
+                                'State': row.get('State', 'neutral'),
+                                'conformer': row.get('conformer', 'conf_1'),
+                                'gap_type': gap_type,
+                                'gap_value_ev': gap_data.loc[idx],
+                                'gap_value_meV': gap_data.loc[idx] * 1000,
+                                'gap_category': 'Normal',
+                                'source_column': gap_col
+                            }
+                            
+                            # 添加分子特征
+                            for col in self.feature_df.columns:
+                                if col.startswith(('has_', 'estimated_', 'electron_', 'planarity')):
+                                    normal_sample[col] = row.get(col, np.nan)
+                            
+                            normal_samples.append(normal_sample)
+                            
+                            if len(normal_samples) >= len(inverted_df):
+                                break
+                                
+                except Exception as e:
+                    print(f"处理正常样本时出错 ({gap_col}): {e}")
+                    continue
+                    
+                if len(normal_samples) >= len(inverted_df):
+                    break
+            
+            normal_df = pd.DataFrame(normal_samples) if normal_samples else pd.DataFrame()
+            
+            # 保存结果
+            os.makedirs(self.output_dir, exist_ok=True)
+            
+            inverted_file = os.path.join(self.output_dir, "all_inverted_gap_samples.csv")
+            inverted_df.to_csv(inverted_file, index=False)
+            
+            normal_file = os.path.join(self.output_dir, "normal_gap_samples.csv") 
+            if not normal_df.empty:
+                normal_df.to_csv(normal_file, index=False)
+            
+            # 合并文件用于分析
+            all_gaps_df = pd.concat([inverted_df, normal_df], ignore_index=True) if not normal_df.empty else inverted_df
+            all_gaps_file = os.path.join(self.output_dir, "all_gap_samples_analysis.csv")
+            all_gaps_df.to_csv(all_gaps_file, index=False)
+            
+            print(f"\n文件已保存:")
+            print(f"  - 反转能隙样本: {inverted_file}")
+            if not normal_df.empty:
+                print(f"  - 正常能隙样本: {normal_file}")
+            print(f"  - 完整分析文件: {all_gaps_file}")
+            
+            return {
+                'inverted_file': inverted_file,
+                'normal_file': normal_file if not normal_df.empty else None,
+                'all_gaps_file': all_gaps_file,
+                'inverted_count': len(inverted_df),
+                'normal_count': len(normal_df),
+                'gap_types': inverted_types_count,
+                'inverted_df': inverted_df,
+                'normal_df': normal_df
+            }
+        
+        else:
+            print("未找到任何反转能隙样本")
+            return None
+
+
     def run_feature_pipeline(self, data_file=None):
         """Run the complete feature engineering pipeline."""
         if data_file:
@@ -820,14 +1280,25 @@ class FeatureAgent:
         # Preprocess and create features
         feature_file = self.preprocess_data()
         
-        # Extract negative S1-T1 gap samples
+        # Extract negative S1-T1 gap samples (保留原有功能)
         gap_data = self.get_negative_s1t1_samples()
+        
+        # 新增：提取所有类型的反转能隙
+        all_inverted_gaps = self.get_all_inverted_gap_samples()
+        
+        # 新增：提取和分类反转能隙特征
+        reversed_gap_df = self.extract_reversed_gap_features()
+        if reversed_gap_df is not None and len(reversed_gap_df) > 0:
+            self.classify_inverted_gaps()
+            self.visualize_reversed_gaps()  # 可视化结果
         
         return {
             'feature_file': feature_file,
-            'gap_data': gap_data
+            'gap_data': gap_data,  # S1-T1 only
+            'all_inverted_gaps': all_inverted_gaps,  # 所有类型的反转
+            'reversed_gap_features': reversed_gap_df  
         }
-    
+        
     # 在feature_agent.py或相关绘图代码中添加明确的图片保存逻辑
 
 def save_feature_correlation_plot(self, feature_df, features_to_plot, output_dir):
@@ -867,4 +1338,51 @@ def save_feature_distribution_plots(self, feature_df, features_to_plot, output_d
     
     return output_paths
 
-
+def visualize_reversed_gaps(self):
+    """可视化反转能隙分析结果"""
+    if self.reversed_gap_df is None or len(self.reversed_gap_df) == 0:
+        print("没有反转能隙数据可供可视化")
+        return None
+    
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    
+    # 创建可视化输出目录
+    viz_dir = os.path.join(self.output_dir, 'visualizations')
+    os.makedirs(viz_dir, exist_ok=True)
+    
+    # 1. 反转能隙类型分布图
+    plt.figure(figsize=(10, 6))
+    gap_type_counts = self.reversed_gap_df['primary_gap_type'].value_counts()
+    gap_type_counts.plot(kind='bar')
+    plt.title('Distribution of Inverted Gap Types')
+    plt.xlabel('Gap Type')
+    plt.ylabel('Count')
+    plt.tight_layout()
+    plt.savefig(os.path.join(viz_dir, 'gap_type_distribution.png'))
+    plt.close()
+    
+    # 2. 反转能隙值分布
+    plt.figure(figsize=(10, 6))
+    plt.hist(self.reversed_gap_df['primary_gap_ev'], bins=20, edgecolor='black')
+    plt.title('Distribution of Inverted Gap Values')
+    plt.xlabel('Gap Value (eV)')
+    plt.ylabel('Count')
+    plt.axvline(x=0, color='red', linestyle='--', label='Zero Gap')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(viz_dir, 'gap_value_distribution.png'))
+    plt.close()
+    
+    # 3. 分类结果饼图
+    if 'inversion_class' in self.reversed_gap_df.columns:
+        plt.figure(figsize=(8, 8))
+        class_counts = self.reversed_gap_df['inversion_class'].value_counts()
+        plt.pie(class_counts.values, labels=class_counts.index, autopct='%1.1f%%')
+        plt.title('Inverted Gap Classification')
+        plt.tight_layout()
+        plt.savefig(os.path.join(viz_dir, 'gap_classification.png'))
+        plt.close()
+    
+    print(f"可视化结果已保存到: {viz_dir}")
+    return viz_dir
