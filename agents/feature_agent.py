@@ -1279,7 +1279,24 @@ class FeatureAgent:
         
         print("\n=== 开始查找所有反转能隙 ===")
         print(f"数据框形状: {df.shape}")
-        print(f"列名: {df.columns.tolist()[:20]}...")  # 显示前20个列名
+        
+        # 添加诊断：列出所有包含gap相关词的列
+        print("\n=== 诊断：所有可能的gap列 ===")
+        gap_related_cols = []
+        for col in df.columns:
+            col_lower = col.lower()
+            if any(word in col_lower for word in ['gap', 'delta', 'diff', 's1', 's2', 's3', 's4', 't1', 't2', 't3', 't4', 't5']):
+                gap_related_cols.append(col)
+                # 检查这列的数据类型和值范围
+                if df[col].dtype in ['float64', 'int64']:
+                    non_na_count = df[col].notna().sum()
+                    if non_na_count > 0:
+                        min_val = df[col].min()
+                        max_val = df[col].max()
+                        negative_count = (df[col] < 0).sum()
+                        print(f"  {col}: min={min_val:.4f}, max={max_val:.4f}, negative_count={negative_count}")
+        
+        print(f"\n找到 {len(gap_related_cols)} 个可能的gap相关列")
         
         # 扩展要检查的能隙模式
         gap_patterns = [
