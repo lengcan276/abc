@@ -16,15 +16,41 @@ class ExplorationAgent:
     Performs statistical analysis, visualization, and structure-property relationships.
     """
     
-    def __init__(self, neg_file=None, pos_file=None):
-        """Initialize the ExplorationAgent with negative and positive S1-T1 gap data files."""
-        self.neg_file = neg_file
-        self.pos_file = pos_file
+    def __init__(self, neg_file=None, pos_file=None, gap_data_file=None):
+        """
+        Initialize the ExplorationAgent with negative and positive S1-T1 gap data files.
+        
+        Args:
+            neg_file: Path to negative S1-T1 gap data file
+            pos_file: Path to positive S1-T1 gap data file  
+            gap_data_file: Path to all gap types data file (新增)
+        """
+        # 设置默认路径
+        default_extracted_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/extracted'
+        
+        # 如果没有提供文件路径，使用默认路径
+        self.neg_file = neg_file if neg_file else os.path.join(default_extracted_dir, 'negative_s1t1_samples.csv')
+        self.pos_file = pos_file if pos_file else os.path.join(default_extracted_dir, 'positive_s1t1_samples.csv')
+        self.gap_data_file = gap_data_file if gap_data_file else os.path.join(default_extracted_dir, 'all_inverted_gap_samples.csv')
+        
         self.neg_data = None
         self.pos_data = None
+        self.all_gap_data = None  # 新增：存储所有gap类型的数据
+        self.reversed_features = None  # 新增：存储reversed features数据
         self.results = {}
         self.setup_logging()
         
+        # 设置输出目录
+        self.output_dir = default_extracted_dir
+        
+        # 尝试自动加载数据（如果文件存在）
+        if os.path.exists(self.neg_file) and os.path.exists(self.pos_file):
+            try:
+                self.load_data()
+                self.logger.info(f"Automatically loaded data from default paths")
+            except Exception as e:
+                self.logger.warning(f"Failed to auto-load data: {e}")
+            
     def setup_logging(self):
         """Configure logging for the exploration agent."""
         logging.basicConfig(level=logging.INFO, 
@@ -38,20 +64,12 @@ class ExplorationAgent:
         if neg_file:
             self.neg_file = neg_file
         else:
-<<<<<<< HEAD
-            self.neg_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/negative_s1t1_samples.csv'
-=======
-            self.neg_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/negative_s1t1_samples.csv'
->>>>>>> 0181d62 (update excited)
+            self.neg_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/extracted/negative_s1t1_samples.csv'
         
         if pos_file:
             self.pos_file = pos_file
         else:
-<<<<<<< HEAD
-            self.pos_file = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/positive_s1t1_samples.csv'
-=======
-            self.pos_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/extracted/positive_s1t1_samples.csv'
->>>>>>> 0181d62 (update excited)
+            self.pos_file = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/extracted/positive_s1t1_samples.csv'
         
         # 尝试加载数据
         try:
@@ -98,13 +116,178 @@ class ExplorationAgent:
                 self.pos_molecules = [f"Positive_Molecule_{i+1}" for i in range(len(self.pos_data))]
                 self.pos_data['Molecule'] = self.pos_molecules
             
+            # 新增：同时加载gap数据（如果存在）
+            self.load_gap_data()
+            
             return True
         
         except Exception as e:
             self.logger.error(f"加载数据时出错: {e}")
             # 如果加载失败，创建示例数据
             return False
+    
+    def load_gap_data(self):
+        """加载所有类型的gap数据（新增方法）"""
+        # 优先使用 all_inverted_gap_samples.csv
+        inverted_gap_file = os.path.join(self.output_dir, 'all_inverted_gap_samples.csv')
+        if os.path.exists(inverted_gap_file):
+            try:
+                self.all_gap_data = pd.read_csv(inverted_gap_file)
+                self.logger.info(f"Loaded {len(self.all_gap_data)} inverted gap samples")
+                
+                # 分析不同gap类型
+                if 'gap_type' in self.all_gap_data.columns:
+                    gap_types = self.all_gap_data['gap_type'].value_counts()
+                    self.logger.info(f"Gap types found: {gap_types.to_dict()}")
+                    print(f"Gap types distribution: {gap_types.to_dict()}")
+            except Exception as e:
+                self.logger.error(f"Error loading inverted gap data: {e}")
+                
+        # 如果有reversed_gap_features.csv，也加载它
+        reversed_features_file = os.path.join(self.output_dir, 'reversed_gap_features.csv')
+        if os.path.exists(reversed_features_file):
+            try:
+                self.reversed_features = pd.read_csv(reversed_features_file)
+                self.logger.info(f"Loaded {len(self.reversed_features)} reversed features samples")
+            except Exception as e:
+                self.logger.error(f"Error loading reversed features data: {e}")
+    
+    def analyze_all_gaps(self):
+        """分析所有类型的gap，不仅仅是S1-T1（新增方法）"""
+        if self.all_gap_data is None:
+            self.load_gap_data()
+            
+        if self.all_gap_data is None or self.all_gap_data.empty:
+            self.logger.warning("No gap data available for analysis")
+            return None
+            
+        analysis_results = {}
         
+        # 按gap类型分组分析
+        if 'gap_type' in self.all_gap_data.columns:
+            for gap_type in self.all_gap_data['gap_type'].unique():
+                gap_subset = self.all_gap_data[self.all_gap_data['gap_type'] == gap_type]
+                
+                analysis_results[gap_type] = {
+                    'count': len(gap_subset),
+                    'mean_gap': gap_subset['gap_value_ev'].mean() if 'gap_value_ev' in gap_subset.columns else None,
+                    'min_gap': gap_subset['gap_value_ev'].min() if 'gap_value_ev' in gap_subset.columns else None,
+                    'max_gap': gap_subset['gap_value_ev'].max() if 'gap_value_ev' in gap_subset.columns else None,
+                    'molecules': gap_subset['Molecule'].unique().tolist() if 'Molecule' in gap_subset.columns else []
+                }
+                
+                self.logger.info(f"Gap type {gap_type}: {analysis_results[gap_type]['count']} molecules")
+        
+        # 创建可视化
+        self._visualize_all_gaps(analysis_results)
+        
+        # 将结果存储到self.results中，以便与其他分析集成
+        self.results['all_gaps_analysis'] = analysis_results
+        
+        return analysis_results
+    
+    def _visualize_all_gaps(self, analysis_results):
+        """为所有gap类型创建可视化（新增私有方法）"""
+        if not analysis_results:
+            return
+            
+        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/reports/exploration'
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # 1. Gap类型分布饼图
+        plt.figure(figsize=(10, 8))
+        gap_types = list(analysis_results.keys())
+        counts = [analysis_results[gap_type]['count'] for gap_type in gap_types]
+        
+        plt.pie(counts, labels=gap_types, autopct='%1.1f%%', startangle=90)
+        plt.title('Distribution of Different Gap Types')
+        plt.tight_layout()
+        pie_file = os.path.join(results_dir, 'gap_types_distribution.png')
+        plt.savefig(pie_file)
+        plt.close()
+        
+        # 2. Gap值范围比较图
+        if all('mean_gap' in analysis_results[gap_type] and analysis_results[gap_type]['mean_gap'] is not None 
+            for gap_type in gap_types):
+            plt.figure(figsize=(12, 8))
+            
+            means = [analysis_results[gap_type]['mean_gap'] for gap_type in gap_types]
+            mins = [analysis_results[gap_type]['min_gap'] for gap_type in gap_types]
+            maxs = [analysis_results[gap_type]['max_gap'] for gap_type in gap_types]
+            
+            x = np.arange(len(gap_types))
+            width = 0.35
+            
+            plt.bar(x, means, width, label='Mean Gap', alpha=0.8)
+            
+            # 修复误差条计算
+            # 计算误差条的下界和上界（都应该是正值）
+            yerr_lower = []
+            yerr_upper = []
+            
+            for i in range(len(means)):
+                # 下误差条：从mean到min的距离（应该是正值）
+                lower_err = abs(means[i] - mins[i])
+                # 上误差条：从mean到max的距离（应该是正值）
+                upper_err = abs(maxs[i] - means[i])
+                
+                yerr_lower.append(lower_err)
+                yerr_upper.append(upper_err)
+            
+            # 使用计算好的误差条值
+            plt.errorbar(x, means, yerr=[yerr_lower, yerr_upper], 
+                        fmt='none', color='black', capsize=5)
+            
+            plt.xlabel('Gap Type')
+            plt.ylabel('Gap Value (eV)')
+            plt.title('Gap Value Ranges by Type')
+            plt.xticks(x, gap_types, rotation=45, ha='right')
+            plt.axhline(y=0, color='red', linestyle='--', alpha=0.5)
+            plt.legend()
+            plt.tight_layout()
+            
+            range_file = os.path.join(results_dir, 'gap_ranges_comparison.png')
+            plt.savefig(range_file)
+            plt.close()
+            
+            # 3. 添加一个额外的箱线图来更好地展示数据分布
+            if self.all_gap_data is not None and 'gap_type' in self.all_gap_data.columns and 'gap_value_ev' in self.all_gap_data.columns:
+                plt.figure(figsize=(12, 8))
+                
+                # 准备箱线图数据
+                box_data = []
+                box_labels = []
+                
+                for gap_type in gap_types:
+                    gap_subset = self.all_gap_data[self.all_gap_data['gap_type'] == gap_type]
+                    if 'gap_value_ev' in gap_subset.columns:
+                        values = gap_subset['gap_value_ev'].dropna().values
+                        if len(values) > 0:
+                            box_data.append(values)
+                            box_labels.append(gap_type)
+                
+                if box_data:
+                    plt.boxplot(box_data, labels=box_labels)
+                    plt.xlabel('Gap Type')
+                    plt.ylabel('Gap Value (eV)')
+                    plt.title('Gap Value Distribution by Type (Box Plot)')
+                    plt.xticks(rotation=45, ha='right')
+                    plt.axhline(y=0, color='red', linestyle='--', alpha=0.5, label='Zero Gap')
+                    plt.grid(True, alpha=0.3)
+                    plt.legend()
+                    plt.tight_layout()
+                    
+                    boxplot_file = os.path.join(results_dir, 'gap_boxplot_comparison.png')
+                    plt.savefig(boxplot_file)
+                    plt.close()
+                    
+                    # 更新results
+                    self.results['gap_boxplot'] = boxplot_file
+            
+            # 更新results
+            self.results['gap_distribution_plot'] = pie_file
+            self.results['gap_ranges_plot'] = range_file
+    
     def analyze_molecular_features(self):
         """Analyze structural features of molecules with negative vs positive S1-T1 gap."""
         if self.neg_data is None or self.pos_data is None:
@@ -112,8 +295,7 @@ class ExplorationAgent:
             return None
             
         print("Analyzing molecular features for negative vs positive S1-T1 gap molecules...")
-        print("Analyzing molecular features for negative vs positive S1-T1 gap molecules...")
-    
+        
         # 添加调试信息
         print("\n===== DATA INSPECTION =====")
         print(f"Negative data shape: {self.neg_data.shape}")
@@ -129,13 +311,20 @@ class ExplorationAgent:
             print("\nFirst 3 rows of positive data:")
             print(self.pos_data.head(3))
         print("===========================\n")
+        
+        # 新增：同时分析所有gap类型（如果数据存在）
+        if self.all_gap_data is not None:
+            print("\n===== ANALYZING ALL GAP TYPES =====")
+            all_gaps_results = self.analyze_all_gaps()
+            if all_gaps_results:
+                print("All gap types analysis completed.")
+                for gap_type, stats in all_gaps_results.items():
+                    print(f"  - {gap_type}: {stats['count']} molecules, "
+                          f"mean gap = {stats['mean_gap']:.4f} eV if stats['mean_gap'] else 'N/A'")
+            print("===================================\n")
       
         # Create results directory
-<<<<<<< HEAD
-        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
-=======
-        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/exploration'
->>>>>>> 0181d62 (update excited)
+        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/reports/exploration'
         os.makedirs(results_dir, exist_ok=True)
         
         # 检查是否存在 s1_t1_gap_ev 列
@@ -558,11 +747,7 @@ class ExplorationAgent:
             return None
             
         # Create report directory
-<<<<<<< HEAD
-        report_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports'
-=======
-        report_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports'
->>>>>>> 0181d62 (update excited)
+        report_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/reports'
         os.makedirs(report_dir, exist_ok=True)
         
         report_path = os.path.join(report_dir, 'reverse_tadf_exploration_report.md')

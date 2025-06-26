@@ -303,9 +303,9 @@ class TuningAgent:
     def setup_logging(self):
         """配置日志记录"""
 <<<<<<< HEAD
-        log_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs'
+        log_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/logs'
 =======
-        log_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/logs'
+        log_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/logs'
 >>>>>>> 0181d62 (update excited)
         os.makedirs(log_dir, exist_ok=True)
         
@@ -523,9 +523,9 @@ class TuningAgent:
             
         # 创建结果目录
 <<<<<<< HEAD
-        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/tuning'
+        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/reports/tuning'
 =======
-        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/tuning'
+        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/reports/tuning'
 >>>>>>> 0181d62 (update excited)
         os.makedirs(results_dir, exist_ok=True)
         
@@ -793,9 +793,9 @@ class TuningAgent:
             
             # 保存模型
 <<<<<<< HEAD
-            model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+            model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/models'
 =======
-            model_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+            model_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/models'
 >>>>>>> 0181d62 (update excited)
             os.makedirs(model_dir, exist_ok=True)
             
@@ -879,17 +879,17 @@ class TuningAgent:
                 
         # 创建结果目录
 <<<<<<< HEAD
-        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/tuning'
+        results_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/reports/tuning'
         os.makedirs(results_dir, exist_ok=True)
             
         # 创建模型目录
-        model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+        model_dir = '/vol1/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/models'
 =======
-        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/reports/tuning'
+        results_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/reports/tuning'
         os.makedirs(results_dir, exist_ok=True)
             
         # 创建模型目录
-        model_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach/data/models'
+        model_dir = '/vol1/home/lengcan/cleng/Function_calling/test/0-ground_state_structures/0503/reverse_TADF_system_deepreseach_0617/data/models'
 >>>>>>> 0181d62 (update excited)
         os.makedirs(model_dir, exist_ok=True)
             

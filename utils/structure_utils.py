@@ -121,38 +121,86 @@ class StructureUtils:
             
             # 假设路径类似：/path/to/molecule/state/gaussian/conf_1/ground.log
             if len(path_parts) >= 4:
-                mol_name_idx = max(0, len(path_parts) - 5)
-                molecule_name = path_parts[mol_name_idx]
-                
-                # 提取状态和构象名
+                # 找到状态目录（neutral/cation/triplet）
+                state_idx = None
                 state = None
                 conf_name = None
                 
-                for part in path_parts:
+                for i, part in enumerate(path_parts):
                     if part in ['neutral', 'cation', 'triplet']:
+                        state_idx = i
                         state = part
                     if part.startswith('conf_'):
                         conf_name = part
                 
-                if state and conf_name:
+                if state_idx is not None and state:
+                    # 构建状态目录路径
+                    state_dir = os.path.join(*path_parts[:state_idx+1])
+                    
                     # 尝试几种可能的CREST文件位置
-                    potential_paths = [
-                        # 路径类型1: molecule/results/state_conf.xyz
-                        os.path.join(*path_parts[:mol_name_idx+1], 'results', f"{state}_{conf_name}.xyz"),
-                        # 路径类型2: molecule/results/conf/state_conf.xyz
-                        os.path.join(*path_parts[:mol_name_idx+1], 'results', conf_name, f"{state}.xyz"),
-                        # 路径类型3: molecule/state/crest/conf.xyz
-                        os.path.join(*path_parts[:mol_name_idx+1], state, 'crest', f"{conf_name}.xyz"),
-                    ]
+                    potential_paths = []
+                    
+                    # 最重要的：CREST文件直接在state目录下
+                    if os.path.exists(state_dir):
+                        # 查找常见的CREST输出文件
+                        crest_files = [
+                            'crest_conformers.xyz',
+                            'crest_best.xyz',
+                            'crest_rotamers.xyz',
+                            'struc.xyz',
+                            'coords.xyz'
+                        ]
+                        
+                        for crest_file in crest_files:
+                            potential_path = os.path.join(state_dir, crest_file)
+                            if os.path.exists(potential_path):
+                                potential_paths.append(potential_path)
+                        
+                        # 如果有conf_name，也尝试寻找特定构象的文件
+                        if conf_name:
+                            conf_specific_files = [
+                                f'{conf_name}.xyz',
+                                f'crest_{conf_name}.xyz',
+                                f'{state}_{conf_name}.xyz'
+                            ]
+                            for cf in conf_specific_files:
+                                potential_path = os.path.join(state_dir, cf)
+                                if os.path.exists(potential_path):
+                                    potential_paths.append(potential_path)
+                    
+                    # 也检查其他可能的位置
+                    if conf_name:
+                        mol_name_idx = max(0, state_idx - 1)
+                        
+                        # 额外的搜索路径
+                        additional_paths = [
+                            # 路径类型1: molecule/results/state_conf.xyz
+                            os.path.join(*path_parts[:mol_name_idx+1], 'results', f"{state}_{conf_name}.xyz"),
+                            # 路径类型2: molecule/results/conf/state_conf.xyz
+                            os.path.join(*path_parts[:mol_name_idx+1], 'results', conf_name, f"{state}.xyz"),
+                            # 路径类型3: molecule/state/crest/conf.xyz
+                            os.path.join(state_dir, 'crest', f"{conf_name}.xyz"),
+                        ]
+                        
+                        potential_paths.extend(additional_paths)
                     
                     # 尝试更通用的搜索模式
+                    mol_name_idx = max(0, state_idx - 1)
                     results_dir = os.path.join(*path_parts[:mol_name_idx+1], 'results')
                     if os.path.exists(results_dir):
                         # 查找所有.xyz文件
                         xyz_files = glob.glob(os.path.join(results_dir, '**', '*.xyz'), recursive=True)
-                        
-                        # 添加到潜在路径
                         potential_paths.extend(xyz_files)
+                    
+                    # 去重
+                    potential_paths = list(set(potential_paths))
+                    
+                    # 按优先级排序（最可能的文件在前）
+                    priority_files = ['crest_conformers.xyz', 'crest_best.xyz', 'struc.xyz']
+                    potential_paths.sort(key=lambda x: (
+                        0 if any(pf in x for pf in priority_files) else 1,
+                        len(x)  # 较短的路径优先
+                    ))
                     
                     # 尝试所有可能的路径
                     for path in potential_paths:
@@ -161,26 +209,59 @@ class StructureUtils:
                             return StructureUtils.load_molecule_from_xyz(path)
             
             # 如果无法找到匹配的文件，尝试一般搜索
-            # 查找以状态名（如neutral/cation/triplet）开头，以.xyz结尾的文件
-            base_dir = os.path.dirname(gaussian_path)
-            while base_dir and not os.path.basename(base_dir) in ['neutral', 'cation', 'triplet', 'gaussian']:
-                base_dir = os.path.dirname(base_dir)
+            # 从gaussian路径向上查找
+            search_dir = os.path.dirname(gaussian_path)
+            max_levels = 5  # 最多向上查找5级
             
-            if base_dir:
-                results_dir = os.path.join(os.path.dirname(os.path.dirname(base_dir)), 'results')
-                if os.path.exists(results_dir):
-                    state = os.path.basename(base_dir)
-                    xyz_files = glob.glob(os.path.join(results_dir, f"{state}*.xyz"))
+            for _ in range(max_levels):
+                if not search_dir or search_dir == '/':
+                    break
                     
-                    if xyz_files:
-                        print(f"找到可能的CREST构型文件: {xyz_files[0]}")
+                # 在当前目录及子目录中查找xyz文件
+                try:
+                    xyz_files = glob.glob(os.path.join(search_dir, '**', '*.xyz'), recursive=True)
+                    
+                    # 优先选择包含'crest'的文件
+                    crest_files = [f for f in xyz_files if 'crest' in f.lower()]
+                    if crest_files:
+                        # 选择最可能的文件
+                        for priority in ['crest_conformers.xyz', 'crest_best.xyz', 'crest.xyz']:
+                            for cf in crest_files:
+                                if priority in os.path.basename(cf):
+                                    print(f"找到CREST构型文件: {cf}")
+                                    return StructureUtils.load_molecule_from_xyz(cf)
+                        
+                        # 如果没有找到优先文件，返回第一个crest文件
+                        print(f"找到CREST构型文件: {crest_files[0]}")
+                        return StructureUtils.load_molecule_from_xyz(crest_files[0])
+                    
+                    # 如果没有crest文件，尝试其他xyz文件
+                    if xyz_files and len(xyz_files) < 10:  # 避免过多选择
+                        print(f"找到可能的构型文件: {xyz_files[0]}")
                         return StructureUtils.load_molecule_from_xyz(xyz_files[0])
+                        
+                except Exception as e:
+                    print(f"搜索xyz文件时出错: {e}")
+                
+                # 向上一级目录
+                search_dir = os.path.dirname(search_dir)
             
+            # 如果还是找不到，打印详细的调试信息
             print(f"无法找到匹配的CREST构型文件")
+            print(f"  Gaussian路径: {gaussian_path}")
+            print(f"  尝试的状态: {state if 'state' in locals() else 'N/A'}")
+            print(f"  尝试的构象: {conf_name if 'conf_name' in locals() else 'N/A'}")
+            
+            # 打印当前目录结构供调试
+            if 'state_dir' in locals() and os.path.exists(state_dir):
+                print(f"  状态目录内容: {os.listdir(state_dir)[:10]}")  # 只显示前10个文件
+                
             return None
             
         except Exception as e:
             logging.error(f"查找CREST构型文件时出错: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     @staticmethod
