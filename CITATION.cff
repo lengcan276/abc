@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: "Calicene HTO ML"
+message: "Please cite the accompanying revised manuscript and this software repository."
+type: software
+authors:
+  - family-names: Leng
+    given-names: Can
+repository-code: "https://github.com/lengcan276/calicene-hto-ml"
+version: 1.0.0
